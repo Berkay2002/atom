@@ -2,8 +2,8 @@
 //! issues add chip strips, swatch rows, glass sliders, etc.
 
 use crate::ui_tokens::{
-    ACCENT, ACCENT_DIM, BODY_SIZE, BORDER, CARD_BG, RADIUS_CARD, RADIUS_CHIP, SURFACE_MUTE,
-    TEXT_PRIMARY,
+    ACCENT, ACCENT_DIM, BODY_SIZE, BORDER, CARD_BG, LABEL_SIZE, RADIUS_CARD, RADIUS_CHIP,
+    RADIUS_PILL, SURFACE_MUTE, TEXT_PRIMARY, TEXT_TERTIARY,
 };
 
 /// Swatch height in pixels (matches v4/v5 mockups).
@@ -245,4 +245,126 @@ pub fn swatch_row(
     });
 
     clicked
+}
+
+/// Outer pill size for the toggle switch.
+const TOGGLE_W: f32 = 24.0;
+const TOGGLE_H: f32 = 14.0;
+/// Inner circle diameter and inset from the pill edge.
+const TOGGLE_CIRCLE_D: f32 = 10.0;
+const TOGGLE_INSET: f32 = 2.0;
+
+/// Renders a 24x14 px pill toggle switch. Mutates `on` in place and returns the
+/// `Response` so the caller can react to `.clicked()` / `.changed()`.
+///
+/// Off: `SURFACE_MUTE` fill, white circle inset from the left.
+/// On:  `ACCENT_DIM` fill, `ACCENT` circle inset from the right.
+pub fn toggle_switch(ui: &mut egui::Ui, on: &mut bool) -> egui::Response {
+    let (rect, mut response) =
+        ui.allocate_exact_size(egui::vec2(TOGGLE_W, TOGGLE_H), egui::Sense::click());
+    if response.clicked() {
+        *on = !*on;
+        response.mark_changed();
+    }
+    let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
+
+    let painter = ui.painter();
+    let fill = if *on { ACCENT_DIM } else { SURFACE_MUTE };
+    painter.rect(
+        rect,
+        RADIUS_PILL,
+        fill,
+        egui::Stroke::NONE,
+        egui::StrokeKind::Inside,
+    );
+
+    let circle_color = if *on { ACCENT } else { egui::Color32::WHITE };
+    let r = TOGGLE_CIRCLE_D * 0.5;
+    let cx = if *on {
+        rect.right() - TOGGLE_INSET - r
+    } else {
+        rect.left() + TOGGLE_INSET + r
+    };
+    let cy = rect.center().y;
+    painter.circle_filled(egui::pos2(cx, cy), r, circle_color);
+
+    response
+}
+
+/// Padding for action buttons.
+const ACTION_PAD_X: f32 = 8.0;
+const ACTION_PAD_Y: f32 = 6.0;
+/// Gap between the main label and the optional shortcut hint.
+const ACTION_HINT_GAP: f32 = 6.0;
+
+/// Renders an action button with `label` and an optional inline keyboard
+/// `shortcut` hint (painted in `TEXT_TERTIARY` at `LABEL_SIZE`). Returns the
+/// `Response` so the caller can check `.clicked()`.
+pub fn action_button(
+    ui: &mut egui::Ui,
+    label: &str,
+    shortcut: Option<&str>,
+) -> egui::Response {
+    let label_font = egui::FontId::proportional(BODY_SIZE);
+    let hint_font = egui::FontId::proportional(LABEL_SIZE);
+
+    // Lay out the two text segments up-front so we can size the button and
+    // paint them at the right positions afterwards.
+    let label_galley = ui.painter().layout_no_wrap(
+        label.to_string(),
+        label_font.clone(),
+        TEXT_PRIMARY,
+    );
+    let hint_galley = shortcut.map(|s| {
+        ui.painter().layout_no_wrap(
+            s.to_string(),
+            hint_font.clone(),
+            TEXT_TERTIARY,
+        )
+    });
+
+    let text_w = label_galley.size().x
+        + hint_galley
+            .as_ref()
+            .map(|g| ACTION_HINT_GAP + g.size().x)
+            .unwrap_or(0.0);
+    let text_h = label_galley
+        .size()
+        .y
+        .max(hint_galley.as_ref().map(|g| g.size().y).unwrap_or(0.0));
+
+    // Grow the button to fill the available horizontal width so a row of
+    // buttons inside `ui.horizontal` splits the line evenly.
+    let desired_w = (text_w + 2.0 * ACTION_PAD_X).max(ui.available_width());
+    let desired_h = text_h + 2.0 * ACTION_PAD_Y;
+    let (rect, response) =
+        ui.allocate_exact_size(egui::vec2(desired_w, desired_h), egui::Sense::click());
+    let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
+
+    let pressed = response.is_pointer_button_down_on();
+    let hovered = response.hovered() && !pressed;
+
+    let (fill, stroke) = if pressed {
+        (ACCENT_DIM, egui::Stroke::new(1.0, ACCENT))
+    } else if hovered {
+        (lighten_alpha(SURFACE_MUTE, 0.04), egui::Stroke::NONE)
+    } else {
+        (SURFACE_MUTE, egui::Stroke::NONE)
+    };
+
+    let painter = ui.painter();
+    painter.rect(rect, RADIUS_CHIP, fill, stroke, egui::StrokeKind::Inside);
+
+    // Center the label+hint composite horizontally inside the button.
+    let start_x = rect.center().x - text_w * 0.5;
+    let label_pos = egui::pos2(start_x, rect.center().y - label_galley.size().y * 0.5);
+    painter.galley(label_pos, label_galley.clone(), TEXT_PRIMARY);
+
+    if let Some(g) = hint_galley {
+        let hint_x = start_x + label_galley.size().x + ACTION_HINT_GAP;
+        let hint_pos = egui::pos2(hint_x, rect.center().y - g.size().y * 0.5);
+        painter.galley(hint_pos, g, TEXT_TERTIARY);
+    }
+
+    response
 }

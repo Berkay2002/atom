@@ -3,7 +3,7 @@
 //! that requires a volume rebake changed.
 
 use crate::ui_tokens::{EDGE_INSET, LABEL_SIZE, TEXT_TERTIARY};
-use crate::ui_widgets::{card_frame, chip_strip, swatch_row};
+use crate::ui_widgets::{action_button, card_frame, chip_strip, swatch_row, toggle_switch};
 
 pub struct UiState {
     pub n: u32,
@@ -152,15 +152,40 @@ pub fn panel(ctx: &egui::Context, s: &mut UiState) -> bool {
                 }
                 ui.add(egui::Slider::new(&mut s.k, 0.1..=20.0).text("k (saturation)"));
                 ui.add(egui::Slider::new(&mut s.exposure, 0.1..=5.0).text("exposure"));
-                ui.checkbox(&mut s.auto_rotate, "auto-rotate camera");
 
                 ui.separator();
-                if ui.button("Fit camera (F)").clicked() {
-                    s.fit_requested = true;
-                }
-                if ui.button("Screenshot (S)").clicked() {
-                    s.screenshot_requested = true;
-                }
+                ui.horizontal(|ui| {
+                    ui.label("auto-rotate camera");
+                    ui.with_layout(
+                        egui::Layout::right_to_left(egui::Align::Center),
+                        |ui| {
+                            toggle_switch(ui, &mut s.auto_rotate);
+                        },
+                    );
+                });
+                ui.horizontal(|ui| {
+                    // Split available width evenly between the two buttons.
+                    let item_spacing = ui.spacing().item_spacing.x;
+                    let half = (ui.available_width() - item_spacing) * 0.5;
+                    ui.allocate_ui_with_layout(
+                        egui::vec2(half, 0.0),
+                        egui::Layout::top_down_justified(egui::Align::Center),
+                        |ui| {
+                            if action_button(ui, "fit", Some("F")).clicked() {
+                                s.fit_requested = true;
+                            }
+                        },
+                    );
+                    ui.allocate_ui_with_layout(
+                        egui::vec2(half, 0.0),
+                        egui::Layout::top_down_justified(egui::Align::Center),
+                        |ui| {
+                            if action_button(ui, "capture", Some("S")).clicked() {
+                                s.screenshot_requested = true;
+                            }
+                        },
+                    );
+                });
 
                 if (s.n, s.l, s.m, s.resolution) != old {
                     needs_rebake = true;
