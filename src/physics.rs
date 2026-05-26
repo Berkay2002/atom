@@ -73,6 +73,29 @@ fn factorial(k: u32) -> f64 {
     (1..=k).fold(1.0_f64, |acc, i| acc * i as f64)
 }
 
+/// Real spherical harmonic Y_lm(θ, φ), θ ∈ [0, π], φ ∈ [0, 2π].
+/// K = sqrt( (2l+1)/(4π) · (l-|m|)! / (l+|m|)! )
+///   m > 0:  Y = sqrt(2)·K·cos(m·φ)·P_l^m(cosθ)
+///   m = 0:  Y =           K·       P_l^0(cosθ)
+///   m < 0:  Y = sqrt(2)·K·sin(|m|·φ)·P_l^|m|(cosθ)
+pub fn real_y(l: u32, m: i32, theta: f64, phi: f64) -> f64 {
+    use std::f64::consts::PI;
+    let abs_m = m.unsigned_abs();
+    debug_assert!(abs_m <= l, "|m| must be <= l");
+    let cos_t = theta.cos();
+    let p = legendre(l, abs_m, cos_t);
+    let k = (((2 * l + 1) as f64) / (4.0 * PI)
+        * factorial(l - abs_m) / factorial(l + abs_m))
+        .sqrt();
+    if m == 0 {
+        k * p
+    } else if m > 0 {
+        2_f64.sqrt() * k * (m as f64 * phi).cos() * p
+    } else {
+        2_f64.sqrt() * k * (abs_m as f64 * phi).sin() * p
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -123,5 +146,19 @@ mod tests {
         approx_rel(radial(1, 0, 1.0), 2.0 * (-1.0_f64).exp(), 1e-12);
         // R_{2,0}(r) = (1/(2·sqrt(2))) · (2-r) · e^(-r/2); at r=0 → 1/sqrt(2)
         approx_rel(radial(2, 0, 0.0), 1.0 / 2_f64.sqrt(), 1e-12);
+    }
+
+    #[test]
+    fn real_y_known_values() {
+        use std::f64::consts::PI;
+        // |Y_{0,0}|² = 1/(4π) everywhere
+        let y00 = real_y(0, 0, 0.7, 1.2);
+        approx_rel(y00 * y00, 1.0 / (4.0 * PI), 1e-12);
+        // |Y_{1,1}|²(π/2, 0) = 3/(4π)   (sign-independent check)
+        let y11 = real_y(1, 1, PI / 2.0, 0.0);
+        approx_rel(y11 * y11, 3.0 / (4.0 * PI), 1e-12);
+        // |Y_{1,0}|²(0, 0) = 3/(4π)
+        let y10 = real_y(1, 0, 0.0, 0.0);
+        approx_rel(y10 * y10, 3.0 / (4.0 * PI), 1e-12);
     }
 }
