@@ -59,7 +59,6 @@ pub fn panel(ctx: &egui::Context, s: &mut UiState) -> bool {
             ui.set_width(card_w);
             card_frame(ui, |ui| {
                 ui.heading("atom");
-                ui.separator();
                 let mut preset_choice: Option<usize> = None;
                 egui::ComboBox::from_label("preset")
                     .selected_text("choose…")
