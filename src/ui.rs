@@ -2,8 +2,8 @@
 //! to the top-left of the viewport. Returns `true` from `panel()` if a parameter
 //! that requires a volume rebake changed.
 
-use crate::ui_tokens::EDGE_INSET;
-use crate::ui_widgets::card_frame;
+use crate::ui_tokens::{EDGE_INSET, LABEL_SIZE, TEXT_TERTIARY};
+use crate::ui_widgets::{card_frame, chip_strip};
 
 pub struct UiState {
     pub n: u32,
@@ -77,23 +77,58 @@ pub fn panel(ctx: &egui::Context, s: &mut UiState) -> bool {
                     needs_rebake = true;
                 }
                 ui.separator();
-                ui.label("Quantum numbers");
+                ui.label(
+                    egui::RichText::new("QUANTUM NUMBERS")
+                        .size(LABEL_SIZE)
+                        .color(TEXT_TERTIARY),
+                );
 
                 let old = (s.n, s.l, s.m, s.resolution);
 
-                if ui.add(egui::Slider::new(&mut s.n, 1..=6).text("n")).changed() {
-                    if s.l > s.n - 1 { s.l = s.n - 1; }
+                // n: 1..=6, always all enabled.
+                let n_labels = ["1", "2", "3", "4", "5", "6"];
+                let n_enabled = [true; 6];
+                let n_selected = (s.n as usize).saturating_sub(1).min(5);
+                if let Some(idx) =
+                    chip_strip(ui, &n_labels, n_selected, &n_enabled, "qn-n")
+                {
+                    s.n = (idx as u32) + 1;
+                    if s.l > s.n - 1 {
+                        s.l = s.n - 1;
+                    }
                     let l_i = s.l as i32;
                     s.m = s.m.clamp(-l_i, l_i);
                 }
-                let l_max = s.n - 1;
-                if ui.add(egui::Slider::new(&mut s.l, 0..=l_max).text("l")).changed() {
+
+                // l: spectroscopic letters s,p,d,f,g,h (positions 0..=5).
+                // Enabled where position <= s.n - 1.
+                let l_labels = ["s", "p", "d", "f", "g", "h"];
+                let n_minus_1 = (s.n as usize).saturating_sub(1);
+                let l_enabled: [bool; 6] = std::array::from_fn(|i| i <= n_minus_1);
+                let l_selected = (s.l as usize).min(5);
+                if let Some(idx) =
+                    chip_strip(ui, &l_labels, l_selected, &l_enabled, "qn-l")
+                {
+                    s.l = idx as u32;
                     let l_i = s.l as i32;
                     s.m = s.m.clamp(-l_i, l_i);
                 }
-                let m_max = s.l as i32;
-                let m_min = -m_max;
-                ui.add(egui::Slider::new(&mut s.m, m_min..=m_max).text("m"));
+
+                // m: -5..=+5 always rendered; enabled where |position| <= s.l.
+                let m_labels: [&str; 11] = [
+                    "\u{2212}5", "\u{2212}4", "\u{2212}3", "\u{2212}2", "\u{2212}1",
+                    "0",
+                    "+1", "+2", "+3", "+4", "+5",
+                ];
+                let l_i = s.l as i32;
+                let m_enabled: [bool; 11] =
+                    std::array::from_fn(|i| (i as i32 - 5).abs() <= l_i);
+                let m_selected = (s.m + 5).clamp(0, 10) as usize;
+                if let Some(idx) =
+                    chip_strip(ui, &m_labels, m_selected, &m_enabled, "qn-m")
+                {
+                    s.m = idx as i32 - 5;
+                }
 
                 ui.separator();
                 ui.label("Visual");
