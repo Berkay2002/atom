@@ -4,3 +4,10 @@
 
 # wasm-pack build output
 /crates/atom-core/pkg/
+
+# web demo build/runtime artifacts
+/web/node_modules/
+/web/.next/
+/web/wasm/
+/web/out/
+/web/.vercel/

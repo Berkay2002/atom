@@ -1,0 +1,6 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "bash ./scripts/build-wasm.sh && next build",
+  "installCommand": "npm install",
+  "framework": "nextjs"
+}
