@@ -3,7 +3,7 @@
 //! that requires a volume rebake changed.
 
 use crate::ui_tokens::{EDGE_INSET, LABEL_SIZE, TEXT_TERTIARY};
-use crate::ui_widgets::{card_frame, chip_strip};
+use crate::ui_widgets::{card_frame, chip_strip, swatch_row};
 
 pub struct UiState {
     pub n: u32,
@@ -140,19 +140,16 @@ pub fn panel(ctx: &egui::Context, s: &mut UiState) -> bool {
                         // 512^3 deferred per spec §3 decision 6 — sync bake on main thread
                         // would freeze UI ~400ms; needs async + double-buffer first.
                     });
-                let cmap_names: Vec<&str> =
-                    crate::colormaps::ALL.iter().map(|(n, _)| *n).collect();
-                let current_name = cmap_names
-                    .get(s.colormap_index)
-                    .copied()
-                    .unwrap_or("inferno");
-                egui::ComboBox::from_label("colormap")
-                    .selected_text(current_name)
-                    .show_ui(ui, |ui| {
-                        for (i, name) in cmap_names.iter().enumerate() {
-                            ui.selectable_value(&mut s.colormap_index, i, *name);
-                        }
-                    });
+                ui.label(
+                    egui::RichText::new("COLORMAP")
+                        .size(LABEL_SIZE)
+                        .color(TEXT_TERTIARY),
+                );
+                if let Some(i) =
+                    swatch_row(ui, crate::colormaps::ALL, s.colormap_index)
+                {
+                    s.colormap_index = i;
+                }
                 ui.add(egui::Slider::new(&mut s.k, 0.1..=20.0).text("k (saturation)"));
                 ui.add(egui::Slider::new(&mut s.exposure, 0.1..=5.0).text("exposure"));
                 ui.checkbox(&mut s.auto_rotate, "auto-rotate camera");

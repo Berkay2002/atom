@@ -6,6 +6,19 @@ use crate::ui_tokens::{
     TEXT_PRIMARY,
 };
 
+/// Swatch height in pixels (matches v4/v5 mockups).
+const SWATCH_H: f32 = 12.0;
+
+/// Number of horizontal sub-rects per swatch when painting the gradient.
+const SWATCH_STOPS: usize = 16;
+
+/// Corner radius for swatches — slightly tighter than chips so they read as
+/// a different control class.
+const SWATCH_RADIUS: f32 = 2.0;
+
+/// Horizontal gap between adjacent swatches.
+const SWATCH_GAP: f32 = 4.0;
+
 /// Paints a dark-glass card background (rounded rect, `CARD_BG` fill, 1 px
 /// `BORDER` stroke) and renders `contents` inside with 12 px horizontal /
 /// 14 px vertical padding.
@@ -123,6 +136,112 @@ pub fn chip_strip(
                 }
             }
         });
+    });
+
+    clicked
+}
+
+/// Linearly interpolate two `[u8; 3]` stops at fraction `t` in [0, 1].
+fn lerp_stop(a: [u8; 3], b: [u8; 3], t: f32) -> egui::Color32 {
+    let lerp = |x: u8, y: u8| -> u8 {
+        (x as f32 + (y as f32 - x as f32) * t).round().clamp(0.0, 255.0) as u8
+    };
+    egui::Color32::from_rgb(lerp(a[0], b[0]), lerp(a[1], b[1]), lerp(a[2], b[2]))
+}
+
+/// Sample a colormap LUT (an array of `[u8; 3]` stops) at fraction `t` in [0, 1].
+fn sample_lut(stops: &[[u8; 3]], t: f32) -> egui::Color32 {
+    if stops.is_empty() {
+        return egui::Color32::BLACK;
+    }
+    if stops.len() == 1 {
+        let s = stops[0];
+        return egui::Color32::from_rgb(s[0], s[1], s[2]);
+    }
+    let t = t.clamp(0.0, 1.0);
+    let scaled = t * (stops.len() - 1) as f32;
+    let i = scaled.floor() as usize;
+    let i = i.min(stops.len() - 2);
+    let frac = scaled - i as f32;
+    lerp_stop(stops[i], stops[i + 1], frac)
+}
+
+/// Renders a horizontal row of colormap gradient swatches. Each swatch shows
+/// its colormap LUT as a left-to-right gradient. Returns `Some(index)` if the
+/// user clicked a swatch this frame.
+///
+/// `luts` is the slice from `colormaps::ALL` (or any `&[(&str, &[[u8; 3]])]`).
+/// The widget iterates the slice, so adding a colormap to `colormaps.rs` later
+/// automatically extends the row.
+pub fn swatch_row(
+    ui: &mut egui::Ui,
+    luts: &[(&str, &[[u8; 3]])],
+    selected: usize,
+) -> Option<usize> {
+    let mut clicked: Option<usize> = None;
+    if luts.is_empty() {
+        return clicked;
+    }
+
+    let n = luts.len() as f32;
+    let avail_w = ui.available_width();
+    let total_gap = SWATCH_GAP * (n - 1.0).max(0.0);
+    // Leave 1 px of slack so the ACCENT outer ring on the rightmost swatch
+    // never gets clipped by the available rect.
+    let swatch_w = ((avail_w - total_gap - 1.0).max(1.0)) / n;
+
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = SWATCH_GAP;
+        for (i, (_name, stops)) in luts.iter().enumerate() {
+            let (rect, response) = ui.allocate_exact_size(
+                egui::vec2(swatch_w, SWATCH_H),
+                egui::Sense::click(),
+            );
+            let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
+
+            // Paint the gradient as SWATCH_STOPS sub-rects so we don't depend
+            // on `epaint::Mesh`. 16 stops across ~50 px is visually smooth.
+            let painter = ui.painter();
+            let w = rect.width() / SWATCH_STOPS as f32;
+            for k in 0..SWATCH_STOPS {
+                let t0 = k as f32 / SWATCH_STOPS as f32;
+                let t1 = (k + 1) as f32 / SWATCH_STOPS as f32;
+                let t_mid = 0.5 * (t0 + t1);
+                let color = sample_lut(stops, t_mid);
+                let sub = egui::Rect::from_min_max(
+                    egui::pos2(rect.left() + k as f32 * w, rect.top()),
+                    egui::pos2(rect.left() + (k + 1) as f32 * w, rect.bottom()),
+                );
+                painter.rect_filled(sub, 0.0, color);
+            }
+
+            // Note: sub-rects above are square and ignore SWATCH_RADIUS. At
+            // 2 px radius on a 12 px-tall strip the visual difference is
+            // imperceptible against the card background; the selection
+            // strokes below DO honor the radius and visually define the
+            // swatch's rounded corners.
+
+            if i == selected {
+                // 1 px white inset stroke (sits INSIDE the gradient).
+                painter.rect_stroke(
+                    rect,
+                    SWATCH_RADIUS,
+                    egui::Stroke::new(1.0, egui::Color32::WHITE),
+                    egui::StrokeKind::Inside,
+                );
+                // 1 px ACCENT outer ring (sits OUTSIDE the gradient).
+                painter.rect_stroke(
+                    rect,
+                    SWATCH_RADIUS,
+                    egui::Stroke::new(1.0, ACCENT),
+                    egui::StrokeKind::Outside,
+                );
+            }
+
+            if response.clicked() {
+                clicked = Some(i);
+            }
+        }
     });
 
     clicked
