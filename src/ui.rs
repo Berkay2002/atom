@@ -148,11 +148,49 @@ pub fn hud(ctx: &egui::Context, h: &HudInputs) {
     egui::Area::new(egui::Id::new("scale"))
         .anchor(egui::Align2::LEFT_BOTTOM, egui::vec2(12.0, -12.0))
         .show(ctx, |ui| {
-            let bar_a0 = h.camera_radius * 0.2;
-            let bar_nm = bar_a0 * 0.0529177;
+            // Visible scale bar: fixed 200 px wide. Compute world width that maps to
+            // 200 px at the current camera distance using a perspective-fov approximation:
+            //   visible_world_half = camera_radius · tan(fov/2)
+            // We use fov=60° (matches Camera::new), aspect via screen size.
+            let bar_px = 200.0_f32;
+            let viewport_h = ctx.screen_rect().height();
+            // visible_world_h spans the FULL window height at z = camera_radius.
+            let visible_world_h = 2.0 * h.camera_radius * (60.0_f32.to_radians() * 0.5).tan();
+            let a0_per_px = visible_world_h / viewport_h;
+            let bar_a0 = (bar_px * a0_per_px) as f64;
+            let bar_nm = bar_a0 * 0.052_917_7;
+            let (response, painter) = ui.allocate_painter(
+                egui::vec2(bar_px, 18.0),
+                egui::Sense::hover(),
+            );
+            let rect = response.rect;
+            let mid_y = rect.center().y;
+            let color = egui::Color32::WHITE;
+            painter.line_segment(
+                [
+                    egui::pos2(rect.left(), mid_y),
+                    egui::pos2(rect.right(), mid_y),
+                ],
+                egui::Stroke { width: 2.0, color },
+            );
+            // Small end caps.
+            painter.line_segment(
+                [
+                    egui::pos2(rect.left(), mid_y - 5.0),
+                    egui::pos2(rect.left(), mid_y + 5.0),
+                ],
+                egui::Stroke { width: 2.0, color },
+            );
+            painter.line_segment(
+                [
+                    egui::pos2(rect.right(), mid_y - 5.0),
+                    egui::pos2(rect.right(), mid_y + 5.0),
+                ],
+                egui::Stroke { width: 2.0, color },
+            );
             ui.label(format!(
-                "box: ±{:.1} a₀   |   bar ≈ {:.1} a₀ ({:.3} nm)",
-                h.box_half, bar_a0, bar_nm
+                "{:.1} a₀  ({:.3} nm)   |   box: ±{:.1} a₀",
+                bar_a0, bar_nm, h.box_half
             ));
         });
 }
