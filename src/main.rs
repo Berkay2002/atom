@@ -1,3 +1,5 @@
+mod physics;
+
 use std::sync::Arc;
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
