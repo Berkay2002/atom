@@ -57,7 +57,7 @@ impl GpuState {
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
                 label: Some("device"),
-                required_features: wgpu::Features::empty(),
+                required_features: wgpu::Features::FLOAT32_FILTERABLE,
                 required_limits: wgpu::Limits::default(),
                 memory_hints: wgpu::MemoryHints::Performance,
                 trace: wgpu::Trace::default(),
