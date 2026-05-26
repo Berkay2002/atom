@@ -126,3 +126,33 @@ pub fn panel(ctx: &egui::Context, s: &mut UiState) -> bool {
     });
     needs_rebake
 }
+
+pub struct HudInputs {
+    pub fps: f32,
+    pub peak_psi_sq: f64,    // a₀^-3
+    pub box_half: f64,       // a₀ (current orbital)
+    pub camera_radius: f32,  // a₀
+}
+
+pub fn hud(ctx: &egui::Context, h: &HudInputs) {
+    egui::Area::new(egui::Id::new("fps"))
+        .anchor(egui::Align2::RIGHT_TOP, egui::vec2(-12.0, 12.0))
+        .show(ctx, |ui| {
+            ui.label(format!("{:5.1} FPS", h.fps));
+        });
+    egui::Area::new(egui::Id::new("density"))
+        .anchor(egui::Align2::RIGHT_BOTTOM, egui::vec2(-12.0, -12.0))
+        .show(ctx, |ui| {
+            ui.label(format!("peak |ψ|² = {:.3e} a₀⁻³", h.peak_psi_sq));
+        });
+    egui::Area::new(egui::Id::new("scale"))
+        .anchor(egui::Align2::LEFT_BOTTOM, egui::vec2(12.0, -12.0))
+        .show(ctx, |ui| {
+            let bar_a0 = h.camera_radius * 0.2;
+            let bar_nm = bar_a0 * 0.0529177;
+            ui.label(format!(
+                "box: ±{:.1} a₀   |   bar ≈ {:.1} a₀ ({:.3} nm)",
+                h.box_half, bar_a0, bar_nm
+            ));
+        });
+}

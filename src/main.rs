@@ -35,6 +35,10 @@ struct GpuState {
     egui_renderer: egui_wgpu::Renderer,
     ui: UiState,
     last_frame: std::time::Instant,
+    last_peak: f64,
+    fps_accum: f32,
+    fps_count: u32,
+    fps_value: f32,
 }
 
 impl GpuState {
@@ -80,6 +84,7 @@ impl GpuState {
         };
         surface.configure(&device, &config);
         let initial = bake(3, 2, 1, 128);
+        let last_peak = initial.peak;
         let renderer = Renderer::new(&device, &queue, config.format, &initial);
         let aspect = config.width as f32 / config.height as f32;
         let mut camera = Camera::new(2.0 * volume::box_extent(3) as f32, aspect);
@@ -108,6 +113,10 @@ impl GpuState {
             mouse_down: false, last_mouse: None,
             egui_ctx, egui_state, egui_renderer, ui,
             last_frame,
+            last_peak,
+            fps_accum: 0.0,
+            fps_count: 0,
+            fps_value: 0.0,
         }
     }
 
@@ -127,6 +136,13 @@ impl GpuState {
         let now = std::time::Instant::now();
         let dt = now.duration_since(self.last_frame).as_secs_f32();
         self.last_frame = now;
+        self.fps_accum += dt;
+        self.fps_count += 1;
+        if self.fps_accum >= 0.5 {
+            self.fps_value = self.fps_count as f32 / self.fps_accum;
+            self.fps_accum = 0.0;
+            self.fps_count = 0;
+        }
         if self.ui.auto_rotate {
             self.camera.azimuth += 0.2 * dt;
         }
@@ -135,9 +151,16 @@ impl GpuState {
         let mut rebake_requested = false;
         let full_output = self.egui_ctx.run(raw_input, |ctx| {
             rebake_requested = ui::panel(ctx, &mut self.ui);
+            ui::hud(ctx, &ui::HudInputs {
+                fps: self.fps_value,
+                peak_psi_sq: self.last_peak,
+                box_half: volume::box_extent(self.current_n),
+                camera_radius: self.camera.radius,
+            });
         });
         if rebake_requested {
             let v = volume::bake(self.ui.n, self.ui.l, self.ui.m, self.ui.resolution);
+            self.last_peak = v.peak;
             self.renderer.replace_volume(&self.device, &self.queue, &v);
             self.current_n = self.ui.n;
             self.current_l = self.ui.l;
