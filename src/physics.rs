@@ -73,6 +73,28 @@ fn factorial(k: u32) -> f64 {
     (1..=k).fold(1.0_f64, |acc, i| acc * i as f64)
 }
 
+/// |ψ_nlm(x, y, z)|² in atomic units. Coordinates are cartesian, in a₀.
+pub fn psi_squared(n: u32, l: u32, m: i32, x: f64, y: f64, z: f64) -> f64 {
+    let r = (x * x + y * y + z * z).sqrt();
+    if r == 0.0 {
+        // Only s-orbitals (l=0) have nonzero amplitude at the origin.
+        // For l>0, ρ^l in R_nl forces R(0)=0.
+        if l == 0 {
+            let rad = radial(n, 0, 0.0);
+            let y0 = real_y(0, 0, 0.0, 0.0);
+            let psi = rad * y0;
+            return psi * psi;
+        }
+        return 0.0;
+    }
+    let theta = (z / r).clamp(-1.0, 1.0).acos();
+    let phi = y.atan2(x);
+    let rad = radial(n, l, r);
+    let ylm = real_y(l, m, theta, phi);
+    let psi = rad * ylm;
+    psi * psi
+}
+
 /// Real spherical harmonic Y_lm(θ, φ), θ ∈ [0, π], φ ∈ [0, 2π].
 /// K = sqrt( (2l+1)/(4π) · (l-|m|)! / (l+|m|)! )
 ///   m > 0:  Y = sqrt(2)·K·cos(m·φ)·P_l^m(cosθ)
@@ -160,5 +182,48 @@ mod tests {
         // |Y_{1,0}|²(0, 0) = 3/(4π)
         let y10 = real_y(1, 0, 0.0, 0.0);
         approx_rel(y10 * y10, 3.0 / (4.0 * PI), 1e-12);
+    }
+
+    #[test]
+    fn psi_squared_at_origin_1s() {
+        use std::f64::consts::PI;
+        // ψ_{1,0,0}(0) = 1/sqrt(π) → |ψ|² = 1/π
+        approx_rel(psi_squared(1, 0, 0, 0.0, 0.0, 0.0), 1.0 / PI, 1e-12);
+    }
+
+    #[test]
+    fn psi_squared_at_origin_2s() {
+        use std::f64::consts::PI;
+        // ψ_{2,0,0}(0) = 1/(2·sqrt(2π)) → |ψ|² = 1/(8π)
+        approx_rel(psi_squared(2, 0, 0, 0.0, 0.0, 0.0), 1.0 / (8.0 * PI), 1e-12);
+    }
+
+    fn integrate_psi_squared(n: u32, l: u32, m: i32, half_extent: f64, res: usize) -> f64 {
+        let step = 2.0 * half_extent / res as f64;
+        let dv = step.powi(3);
+        let mut acc = 0.0_f64;
+        for i in 0..res {
+            let x = -half_extent + (i as f64 + 0.5) * step;
+            for j in 0..res {
+                let y = -half_extent + (j as f64 + 0.5) * step;
+                for k in 0..res {
+                    let z = -half_extent + (k as f64 + 0.5) * step;
+                    acc += psi_squared(n, l, m, x, y, z) * dv;
+                }
+            }
+        }
+        acc
+    }
+
+    #[test]
+    fn psi_squared_normalizes_1s() {
+        let integral = integrate_psi_squared(1, 0, 0, 8.0, 64);
+        approx_rel(integral, 1.0, 0.05);
+    }
+
+    #[test]
+    fn psi_squared_normalizes_2p() {
+        let integral = integrate_psi_squared(2, 1, 0, 15.0, 64);
+        approx_rel(integral, 1.0, 0.10);
     }
 }
