@@ -1,11 +1,16 @@
 mod physics;
+mod render;
 mod volume;
 
 use std::sync::Arc;
+use glam::{Mat4, Vec3};
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::window::{Window, WindowId};
+
+use render::Renderer;
+use volume::bake;
 
 struct GpuState {
     surface: wgpu::Surface<'static>,
@@ -13,6 +18,7 @@ struct GpuState {
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
     window: Arc<Window>,
+    renderer: Renderer,
 }
 
 impl GpuState {
@@ -57,7 +63,9 @@ impl GpuState {
             desired_maximum_frame_latency: 2,
         };
         surface.configure(&device, &config);
-        Self { surface, device, queue, config, window }
+        let initial = bake(3, 2, 1, 128);
+        let renderer = Renderer::new(&device, &queue, config.format, &initial);
+        Self { surface, device, queue, config, window, renderer }
     }
 
     fn resize(&mut self, w: u32, h: u32) {
@@ -73,27 +81,27 @@ impl GpuState {
             _ => return,
         };
         let view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+        let half = volume::box_extent(3) as f32;
+        let radius = 2.0 * half;
+        let elev = 30_f32.to_radians();
+        let az = 45_f32.to_radians();
+        let cam_pos = Vec3::new(
+            radius * elev.cos() * az.sin(),
+            radius * elev.sin(),
+            radius * elev.cos() * az.cos(),
+        );
+        let aspect = self.config.width as f32 / self.config.height as f32;
+        let proj = Mat4::perspective_rh(60_f32.to_radians(), aspect, 0.1, radius * 4.0);
+        let view_m = Mat4::look_at_rh(cam_pos, Vec3::ZERO, Vec3::Y);
+        let view_proj = proj * view_m;
+        self.renderer
+            .update_uniforms(&self.queue, view_proj, cam_pos, half, 5.0, 1.0, self.renderer.res as f32);
+
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("frame") });
-        {
-            let _pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("clear"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
-                    resolve_target: None,
-                    depth_slice: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                timestamp_writes: None,
-                occlusion_query_set: None,
-                multiview_mask: None,
-            });
-        }
+        self.renderer.draw(&mut encoder, &view);
         self.queue.submit(Some(encoder.finish()));
         frame.present();
     }
