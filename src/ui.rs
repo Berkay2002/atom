@@ -30,6 +30,10 @@ pub struct UiState {
     /// or when the user manually clicks the chevron while narrow (manual
     /// override wins).
     pub auto_collapsed: bool,
+    /// Previous-frame narrow state. Used to detect the wide→narrow edge so we
+    /// only auto-collapse once per crossing — otherwise a manual expand while
+    /// still narrow would be undone on the next frame.
+    pub prev_narrow: bool,
 }
 
 impl Default for UiState {
@@ -48,6 +52,7 @@ impl Default for UiState {
             hud_visible: true,
             card_expanded: true,
             auto_collapsed: false,
+            prev_narrow: false,
         }
     }
 }
@@ -74,16 +79,17 @@ pub fn panel(ctx: &egui::Context, s: &mut UiState) -> bool {
     let mut needs_rebake = false;
     let viewport_w = ctx.screen_rect().width();
     let narrow = viewport_w < 600.0;
-    // Track breakpoint crossings via `auto_collapsed`. Going narrow while the
-    // card was expanded auto-collapses it; returning to wide clears the flag
-    // so the user's last manual intent (`card_expanded`) takes over again.
-    if narrow {
-        if !s.auto_collapsed && s.card_expanded {
-            s.auto_collapsed = true;
-        }
-    } else if s.auto_collapsed {
+    // Track breakpoint crossings on the edge only. On wide→narrow we auto-
+    // collapse if the user had the card expanded. On narrow→wide we release
+    // the flag so the user's last manual intent (`card_expanded`) takes over
+    // again. Sampling only on edges means a manual chevron click that clears
+    // `auto_collapsed` while still narrow won't be re-asserted next frame.
+    if narrow && !s.prev_narrow && s.card_expanded {
+        s.auto_collapsed = true;
+    } else if !narrow && s.prev_narrow {
         s.auto_collapsed = false;
     }
+    s.prev_narrow = narrow;
     let card_w = (0.38 * viewport_w).min(320.0);
     egui::Area::new(egui::Id::new("hud-card"))
         .anchor(egui::Align2::LEFT_TOP, egui::vec2(EDGE_INSET, EDGE_INSET))
