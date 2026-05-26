@@ -419,6 +419,9 @@ impl ApplicationHandler for App {
                         if !text_focus && code == winit::keyboard::KeyCode::KeyH {
                             gpu.ui.hud_visible = !gpu.ui.hud_visible;
                         }
+                        if !text_focus && code == winit::keyboard::KeyCode::Space {
+                            gpu.ui.auto_rotate = !gpu.ui.auto_rotate;
+                        }
                     }
                 }
             }

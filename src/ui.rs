@@ -25,6 +25,11 @@ pub struct UiState {
     /// Whether the HUD card body (everything below the title row) is expanded.
     /// When `false` the card collapses to its title-only state. In-memory only.
     pub card_expanded: bool,
+    /// `true` when the adaptive breakpoint (< 600 px viewport) has forced the
+    /// card into its collapsed state. Cleared when the viewport widens again,
+    /// or when the user manually clicks the chevron while narrow (manual
+    /// override wins).
+    pub auto_collapsed: bool,
 }
 
 impl Default for UiState {
@@ -42,6 +47,7 @@ impl Default for UiState {
             screenshot_requested: false,
             hud_visible: true,
             card_expanded: true,
+            auto_collapsed: false,
         }
     }
 }
@@ -66,7 +72,19 @@ pub fn panel(ctx: &egui::Context, s: &mut UiState) -> bool {
         return false;
     }
     let mut needs_rebake = false;
-    let card_w = (0.38 * ctx.screen_rect().width()).min(320.0);
+    let viewport_w = ctx.screen_rect().width();
+    let narrow = viewport_w < 600.0;
+    // Track breakpoint crossings via `auto_collapsed`. Going narrow while the
+    // card was expanded auto-collapses it; returning to wide clears the flag
+    // so the user's last manual intent (`card_expanded`) takes over again.
+    if narrow {
+        if !s.auto_collapsed && s.card_expanded {
+            s.auto_collapsed = true;
+        }
+    } else if s.auto_collapsed {
+        s.auto_collapsed = false;
+    }
+    let card_w = (0.38 * viewport_w).min(320.0);
     egui::Area::new(egui::Id::new("hud-card"))
         .anchor(egui::Align2::LEFT_TOP, egui::vec2(EDGE_INSET, EDGE_INSET))
         .show(ctx, |ui| {
@@ -77,11 +95,18 @@ pub fn panel(ctx: &egui::Context, s: &mut UiState) -> bool {
                     ui.with_layout(
                         egui::Layout::right_to_left(egui::Align::Center),
                         |ui| {
-                            chevron_button(ui, &mut s.card_expanded);
+                            // A manual chevron click is the user's explicit
+                            // intent, so it releases any breakpoint-driven
+                            // auto-collapse. This lets the user re-open the
+                            // card while the viewport is still narrow.
+                            if chevron_button(ui, &mut s.card_expanded).clicked() {
+                                s.auto_collapsed = false;
+                            }
                         },
                     );
                 });
-                if s.card_expanded {
+                let render_expanded = s.card_expanded && !s.auto_collapsed;
+                if render_expanded {
                 ui.label(
                     egui::RichText::new("QUANTUM NUMBERS")
                         .size(LABEL_SIZE)
