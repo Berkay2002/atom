@@ -85,7 +85,11 @@ impl GpuState {
         surface.configure(&device, &config);
         let initial = bake(3, 2, 1, 256);
         let last_peak = initial.peak;
-        let renderer = Renderer::new(&device, &queue, config.format, &initial);
+        let renderer = {
+            let mut r = Renderer::new(&device, &queue, config.format, &initial);
+            r.replace_lut(&device, &queue, crate::colormaps::ALL[0].1);
+            r
+        };
         let aspect = config.width as f32 / config.height as f32;
         let mut camera = Camera::new(2.0 * volume::box_extent(3) as f32, aspect);
         camera.fit(volume::box_extent(3) as f32);

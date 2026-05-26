@@ -28,15 +28,6 @@ pub struct Renderer {
     pub res: usize,
 }
 
-// 4 reference stops linearly interpolated into a 256-entry LUT.
-// Used as the initial inferno-ish LUT; Task 11 replaces with full set.
-const DEFAULT_LUT_STOPS: &[[u8; 3]] = &[
-    [0, 0, 4],
-    [120, 28, 109],
-    [237, 121, 83],
-    [252, 255, 164],
-];
-
 fn upload_volume_texture(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
@@ -264,7 +255,8 @@ impl Renderer {
             address_mode_w: wgpu::AddressMode::ClampToEdge,
             ..Default::default()
         });
-        let (lut_tex, lut_view) = upload_lut_texture(device, queue, DEFAULT_LUT_STOPS);
+        // Minimal 2-stop placeholder; immediately overwritten by replace_lut from main.
+        let (lut_tex, lut_view) = upload_lut_texture(device, queue, &[[0, 0, 0], [255, 255, 255]]);
         let lut_smp = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("lsmp"),
             mag_filter: wgpu::FilterMode::Linear,
