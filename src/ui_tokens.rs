@@ -1,9 +1,5 @@
 //! Design tokens for the modern HUD: colors and metrics from the PRD visual-system
 //! table. No functions; this file is constants only.
-//!
-//! Many constants are consumed by widgets added in later HUD issues, so unused
-//! warnings are silenced here.
-#![allow(dead_code)]
 
 use egui::Color32;
 
