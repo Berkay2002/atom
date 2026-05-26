@@ -97,7 +97,9 @@ pub fn panel(ctx: &egui::Context, s: &mut UiState) -> bool {
             ui.set_width(card_w);
             card_frame(ui, |ui| {
                 ui.horizontal(|ui| {
-                    ui.heading("atom");
+                    // Right-to-left layout over the FULL row width: chevron
+                    // gets placed first at the right edge, then the heading
+                    // fills the remaining space on the left.
                     ui.with_layout(
                         egui::Layout::right_to_left(egui::Align::Center),
                         |ui| {
@@ -108,63 +110,74 @@ pub fn panel(ctx: &egui::Context, s: &mut UiState) -> bool {
                             if chevron_button(ui, &mut s.card_expanded).clicked() {
                                 s.auto_collapsed = false;
                             }
+                            ui.with_layout(
+                                egui::Layout::left_to_right(egui::Align::Center),
+                                |ui| {
+                                    ui.heading("atom");
+                                },
+                            );
                         },
                     );
                 });
                 let render_expanded = s.card_expanded && !s.auto_collapsed;
                 if render_expanded {
-                ui.label(
-                    egui::RichText::new("QUANTUM NUMBERS")
-                        .size(LABEL_SIZE)
-                        .color(TEXT_TERTIARY),
-                );
-
                 let old = (s.n, s.l, s.m, s.resolution);
 
-                // n: 1..=6, always all enabled.
-                let n_labels = ["1", "2", "3", "4", "5", "6"];
-                let n_enabled = [true; 6];
-                let n_selected = (s.n as usize).saturating_sub(1).min(5);
-                if let Some(idx) =
-                    chip_strip(ui, &n_labels, n_selected, &n_enabled, "qn-n")
-                {
-                    s.n = (idx as u32) + 1;
-                    if s.l > s.n - 1 {
-                        s.l = s.n - 1;
+                // Group the QUANTUM NUMBERS label + three chip rows with a
+                // slightly larger vertical rhythm so the rows breathe.
+                ui.scope(|ui| {
+                    ui.spacing_mut().item_spacing.y = 5.0;
+                    ui.label(
+                        egui::RichText::new("QUANTUM NUMBERS")
+                            .size(LABEL_SIZE)
+                            .color(TEXT_TERTIARY),
+                    );
+
+                    // n: 1..=6, always all enabled.
+                    let n_labels = ["1", "2", "3", "4", "5", "6"];
+                    let n_enabled = [true; 6];
+                    let n_selected = (s.n as usize).saturating_sub(1).min(5);
+                    if let Some(idx) =
+                        chip_strip(ui, &n_labels, n_selected, &n_enabled, "qn-n")
+                    {
+                        s.n = (idx as u32) + 1;
+                        if s.l > s.n - 1 {
+                            s.l = s.n - 1;
+                        }
+                        let l_i = s.l as i32;
+                        s.m = s.m.clamp(-l_i, l_i);
                     }
-                    let l_i = s.l as i32;
-                    s.m = s.m.clamp(-l_i, l_i);
-                }
 
-                // l: spectroscopic letters s,p,d,f,g,h (positions 0..=5).
-                // Enabled where position <= s.n - 1.
-                let l_labels = ["s", "p", "d", "f", "g", "h"];
-                let n_minus_1 = (s.n as usize).saturating_sub(1);
-                let l_enabled: [bool; 6] = std::array::from_fn(|i| i <= n_minus_1);
-                let l_selected = (s.l as usize).min(5);
-                if let Some(idx) =
-                    chip_strip(ui, &l_labels, l_selected, &l_enabled, "qn-l")
-                {
-                    s.l = idx as u32;
-                    let l_i = s.l as i32;
-                    s.m = s.m.clamp(-l_i, l_i);
-                }
+                    // l: spectroscopic letters s,p,d,f,g,h (positions 0..=5).
+                    // Enabled where position <= s.n - 1.
+                    let l_labels = ["s", "p", "d", "f", "g", "h"];
+                    let n_minus_1 = (s.n as usize).saturating_sub(1);
+                    let l_enabled: [bool; 6] = std::array::from_fn(|i| i <= n_minus_1);
+                    let l_selected = (s.l as usize).min(5);
+                    if let Some(idx) =
+                        chip_strip(ui, &l_labels, l_selected, &l_enabled, "qn-l")
+                    {
+                        s.l = idx as u32;
+                        let l_i = s.l as i32;
+                        s.m = s.m.clamp(-l_i, l_i);
+                    }
 
-                // m: -5..=+5 always rendered; enabled where |position| <= s.l.
-                let m_labels: [&str; 11] = [
-                    "\u{2212}5", "\u{2212}4", "\u{2212}3", "\u{2212}2", "\u{2212}1",
-                    "0",
-                    "+1", "+2", "+3", "+4", "+5",
-                ];
-                let l_i = s.l as i32;
-                let m_enabled: [bool; 11] =
-                    std::array::from_fn(|i| (i as i32 - 5).abs() <= l_i);
-                let m_selected = (s.m + 5).clamp(0, 10) as usize;
-                if let Some(idx) =
-                    chip_strip(ui, &m_labels, m_selected, &m_enabled, "qn-m")
-                {
-                    s.m = idx as i32 - 5;
-                }
+                    // m: -5..=+5 always rendered; enabled where |position| <= s.l.
+                    let m_labels: [&str; 11] = [
+                        "\u{2212}5", "\u{2212}4", "\u{2212}3", "\u{2212}2", "\u{2212}1",
+                        "0",
+                        "+1", "+2", "+3", "+4", "+5",
+                    ];
+                    let l_i = s.l as i32;
+                    let m_enabled: [bool; 11] =
+                        std::array::from_fn(|i| (i as i32 - 5).abs() <= l_i);
+                    let m_selected = (s.m + 5).clamp(0, 10) as usize;
+                    if let Some(idx) =
+                        chip_strip(ui, &m_labels, m_selected, &m_enabled, "qn-m")
+                    {
+                        s.m = idx as i32 - 5;
+                    }
+                });
 
                 ui.separator();
                 ui.label(
@@ -183,7 +196,7 @@ pub fn panel(ctx: &egui::Context, s: &mut UiState) -> bool {
                         .size(LABEL_SIZE)
                         .color(TEXT_TERTIARY),
                 );
-                glass_slider(ui, "k · sat.", &mut s.k, 0.1..=20.0, 1);
+                glass_slider(ui, "saturation", &mut s.k, 0.1..=20.0, 1);
                 glass_slider(ui, "exposure", &mut s.exposure, 0.1..=5.0, 1);
                 // 512³ deferred per spec §3 decision 6 — sync bake on main thread
                 // would freeze UI ~400ms; needs async + double-buffer first.
@@ -206,28 +219,16 @@ pub fn panel(ctx: &egui::Context, s: &mut UiState) -> bool {
                         },
                     );
                 });
-                ui.horizontal(|ui| {
-                    // Split available width evenly between the two buttons.
-                    let item_spacing = ui.spacing().item_spacing.x;
-                    let half = (ui.available_width() - item_spacing) * 0.5;
-                    ui.allocate_ui_with_layout(
-                        egui::vec2(half, 0.0),
-                        egui::Layout::top_down_justified(egui::Align::Center),
-                        |ui| {
-                            if action_button(ui, "fit", Some("F")).clicked() {
-                                s.fit_requested = true;
-                            }
-                        },
-                    );
-                    ui.allocate_ui_with_layout(
-                        egui::vec2(half, 0.0),
-                        egui::Layout::top_down_justified(egui::Align::Center),
-                        |ui| {
-                            if action_button(ui, "capture", Some("S")).clicked() {
-                                s.screenshot_requested = true;
-                            }
-                        },
-                    );
+                // `ui.columns` enforces strictly equal column widths, so the
+                // two action buttons are guaranteed to render at identical
+                // size regardless of label length.
+                ui.columns(2, |cols| {
+                    if action_button(&mut cols[0], "fit", Some("F")).clicked() {
+                        s.fit_requested = true;
+                    }
+                    if action_button(&mut cols[1], "capture", Some("S")).clicked() {
+                        s.screenshot_requested = true;
+                    }
                 });
 
                 if (s.n, s.l, s.m, s.resolution) != old {

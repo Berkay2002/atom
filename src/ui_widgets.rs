@@ -52,9 +52,16 @@ fn scale_alpha(c: egui::Color32, mul: f32) -> egui::Color32 {
     egui::Color32::from_rgba_unmultiplied(r, g, b, new_a)
 }
 
+/// Horizontal gap between adjacent chips.
+const CHIP_GAP: f32 = 3.0;
+
 /// Renders a horizontal row of chips. `enabled[i]` controls whether chip `i`
 /// is clickable (disabled chips render at 25 % alpha and ignore input).
 /// Returns `Some(index)` if the user clicked an enabled chip this frame.
+///
+/// Chips are equal-width and the row fills `ui.available_width()`, so every
+/// chip strip in the card aligns to the same right edge as the colormap row
+/// and the sliders.
 ///
 /// `id_salt` distinguishes multiple chip rows within the same `Ui`.
 pub fn chip_strip(
@@ -65,23 +72,30 @@ pub fn chip_strip(
     id_salt: &str,
 ) -> Option<usize> {
     debug_assert_eq!(labels.len(), enabled.len());
+    let n = labels.len();
+    if n == 0 {
+        return None;
+    }
     let mut clicked: Option<usize> = None;
     let font_id = egui::FontId::proportional(BODY_SIZE);
 
+    let avail_w = ui.available_width();
+    let total_gap = CHIP_GAP * (n.saturating_sub(1)) as f32;
+    let chip_w = ((avail_w - total_gap) / n as f32).max(1.0);
+
     ui.push_id(id_salt, |ui| {
-        ui.spacing_mut().item_spacing.x = 3.0;
+        ui.spacing_mut().item_spacing.x = CHIP_GAP;
         ui.horizontal(|ui| {
             for (i, label) in labels.iter().enumerate() {
                 let is_enabled = enabled[i];
                 let is_selected = i == selected;
 
-                // Measure text to size the chip (3 px vertical, 7 px horizontal padding).
                 let galley = ui.painter().layout_no_wrap(
                     (*label).to_string(),
                     font_id.clone(),
                     TEXT_PRIMARY,
                 );
-                let chip_size = egui::vec2(galley.size().x + 14.0, galley.size().y + 6.0);
+                let chip_size = egui::vec2(chip_w, galley.size().y + 6.0);
 
                 let sense = if is_enabled {
                     egui::Sense::click()
@@ -422,9 +436,10 @@ pub fn action_button(
     response
 }
 
-/// Width of the left label column in a `glass_slider` row, in px. Sized so
-/// `k · sat.` and `exposure` align across rows.
-const SLIDER_LABEL_W: f32 = 60.0;
+/// Width of the left label column in a `glass_slider` row, in px. Sized so the
+/// widest label (`saturation`) at `BODY_SIZE` leaves a comfortable gap to the
+/// track, and so the gap matches the narrower `exposure` row exactly.
+const SLIDER_LABEL_W: f32 = 84.0;
 
 /// Width of the right numeric-value column in a `glass_slider` row, in px.
 const SLIDER_VALUE_W: f32 = 36.0;
@@ -460,7 +475,19 @@ pub fn glass_slider(
     let min = *range.start();
     let max = *range.end();
     let value_font = egui::FontId::proportional(BODY_SIZE);
-    let label_font = egui::FontId::proportional(LABEL_SIZE);
+    // Slider row labels are per-control names, not section headers — render
+    // them at body size so they match the right-side numeric readout.
+    let label_font = egui::FontId::proportional(BODY_SIZE);
+
+    // Compute the track width deterministically from the OUTER row width up
+    // front, before any allocations happen inside the horizontal. Reading
+    // `ui.available_width()` after intermediate allocations leaks egui's
+    // subpixel rounding between rows, which made `exposure` and `saturation`
+    // tracks differ by 1–2 px. Pre-computing fixes that.
+    let row_w = ui.available_width();
+    let item_spacing = ui.spacing().item_spacing.x;
+    let track_w =
+        (row_w - SLIDER_LABEL_W - SLIDER_VALUE_W - 2.0 * item_spacing).max(1.0);
 
     // Capture the response from the inner-most `horizontal` so we can return
     // it. We hold it in an `Option` populated by the closure.
@@ -477,12 +504,6 @@ pub fn glass_slider(
             label_font.clone(),
             TEXT_TERTIARY,
         );
-
-        // ---- Right: reserve value column width so the middle track sizes
-        // correctly. We paint the value AFTER the track to keep ordering
-        // explicit, but allocate the rect now.
-        let avail = ui.available_width();
-        let track_w = (avail - SLIDER_VALUE_W).max(1.0);
 
         // ---- Middle: track + knob ------------------------------------------
         let (track_rect, response) = ui.allocate_exact_size(
