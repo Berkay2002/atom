@@ -83,7 +83,7 @@ impl GpuState {
             desired_maximum_frame_latency: 2,
         };
         surface.configure(&device, &config);
-        let initial = bake(3, 2, 1, 128);
+        let initial = bake(3, 2, 1, 256);
         let last_peak = initial.peak;
         let renderer = Renderer::new(&device, &queue, config.format, &initial);
         let aspect = config.width as f32 / config.height as f32;
@@ -219,7 +219,7 @@ impl GpuState {
             &screen,
         );
         {
-            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            let pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("egui"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &view,

@@ -145,8 +145,9 @@ HUD corners:
 [dependencies]
 wgpu       = "29"      # check 29.x exact API on docs.rs; request_adapter returns Result, request_device takes single descriptor
 winit      = "0.30"    # ApplicationHandler trait, NOT the 0.29 closure API
-egui       = "0.32"    # pin alongside egui-wgpu
-egui-wgpu  = "0.32"    # must match egui + wgpu versions
+egui       = "0.34"    # pin alongside egui-wgpu; 0.34 is the egui line compatible with wgpu 29
+egui-wgpu  = "0.34"    # must match egui + wgpu versions
+egui-winit = "0.34"
 pollster   = "0.4"
 bytemuck   = { version = "1", features = ["derive"] }
 glam       = "0.33"

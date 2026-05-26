@@ -20,7 +20,7 @@ impl Default for UiState {
             n: 3,
             l: 2,
             m: 1,
-            resolution: 128,
+            resolution: 256,
             k: 5.0,
             exposure: 1.0,
             auto_rotate: false,
