@@ -4,8 +4,8 @@
 
 use crate::ui_tokens::{EDGE_INSET, LABEL_SIZE, TEXT_TERTIARY};
 use crate::ui_widgets::{
-    action_button, card_frame, chevron_button, chip_strip, eye_toggle, hud_pill, swatch_row,
-    toggle_switch,
+    action_button, card_frame, chevron_button, chip_strip, eye_toggle, glass_slider, hud_pill,
+    swatch_row, toggle_switch,
 };
 
 pub struct UiState {
@@ -154,15 +154,6 @@ pub fn panel(ctx: &egui::Context, s: &mut UiState) -> bool {
                 }
 
                 ui.separator();
-                ui.label("Visual");
-                egui::ComboBox::from_label("resolution")
-                    .selected_text(format!("{}^3", s.resolution))
-                    .show_ui(ui, |ui| {
-                        ui.selectable_value(&mut s.resolution, 128, "128^3");
-                        ui.selectable_value(&mut s.resolution, 256, "256^3");
-                        // 512^3 deferred per spec §3 decision 6 — sync bake on main thread
-                        // would freeze UI ~400ms; needs async + double-buffer first.
-                    });
                 ui.label(
                     egui::RichText::new("COLORMAP")
                         .size(LABEL_SIZE)
@@ -173,8 +164,24 @@ pub fn panel(ctx: &egui::Context, s: &mut UiState) -> bool {
                 {
                     s.colormap_index = i;
                 }
-                ui.add(egui::Slider::new(&mut s.k, 0.1..=20.0).text("k (saturation)"));
-                ui.add(egui::Slider::new(&mut s.exposure, 0.1..=5.0).text("exposure"));
+
+                ui.label(
+                    egui::RichText::new("RENDER")
+                        .size(LABEL_SIZE)
+                        .color(TEXT_TERTIARY),
+                );
+                glass_slider(ui, "k · sat.", &mut s.k, 0.1..=20.0, 1);
+                glass_slider(ui, "exposure", &mut s.exposure, 0.1..=5.0, 1);
+                // 512³ deferred per spec §3 decision 6 — sync bake on main thread
+                // would freeze UI ~400ms; needs async + double-buffer first.
+                let grid_labels = ["128\u{00b3}", "256\u{00b3}"];
+                let grid_selected = if s.resolution == 128 { 0 } else { 1 };
+                let grid_enabled = [true, true];
+                if let Some(i) =
+                    chip_strip(ui, &grid_labels, grid_selected, &grid_enabled, "grid")
+                {
+                    s.resolution = if i == 0 { 128 } else { 256 };
+                }
 
                 ui.separator();
                 ui.horizontal(|ui| {

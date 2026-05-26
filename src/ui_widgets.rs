@@ -422,6 +422,141 @@ pub fn action_button(
     response
 }
 
+/// Width of the left label column in a `glass_slider` row, in px. Sized so
+/// `k · sat.` and `exposure` align across rows.
+const SLIDER_LABEL_W: f32 = 60.0;
+
+/// Width of the right numeric-value column in a `glass_slider` row, in px.
+const SLIDER_VALUE_W: f32 = 36.0;
+
+/// Total row height for the slider track region. The track itself is 3 px
+/// tall but the knob (radius 4) plus glow (radius 7) need vertical headroom.
+const SLIDER_ROW_H: f32 = 12.0;
+
+/// Track thickness in px.
+const SLIDER_TRACK_H: f32 = 3.0;
+
+/// Knob radius in px.
+const SLIDER_KNOB_R: f32 = 4.0;
+
+/// Outer glow radius in px (paints `ACCENT_DIM` behind the solid knob).
+const SLIDER_GLOW_R: f32 = 7.0;
+
+/// Renders a labeled glass slider. Mutates `value` in [min, max]. Returns
+/// the `Response` for the interactive track region so the caller can check
+/// `.changed()`.
+///
+/// Layout (`ui.horizontal`):
+///   [60 px label][stretch track + knob][36 px right-aligned value]
+///
+/// Interaction: drag or click anywhere on the track sub-region to scrub.
+pub fn glass_slider(
+    ui: &mut egui::Ui,
+    label: &str,
+    value: &mut f32,
+    range: std::ops::RangeInclusive<f32>,
+    display_decimals: usize,
+) -> egui::Response {
+    let min = *range.start();
+    let max = *range.end();
+    let value_font = egui::FontId::proportional(BODY_SIZE);
+    let label_font = egui::FontId::proportional(LABEL_SIZE);
+
+    // Capture the response from the inner-most `horizontal` so we can return
+    // it. We hold it in an `Option` populated by the closure.
+    let mut out_response: Option<egui::Response> = None;
+
+    ui.horizontal(|ui| {
+        // ---- Left: label ----------------------------------------------------
+        let (label_rect, _) =
+            ui.allocate_exact_size(egui::vec2(SLIDER_LABEL_W, SLIDER_ROW_H), egui::Sense::hover());
+        ui.painter().text(
+            egui::pos2(label_rect.left(), label_rect.center().y),
+            egui::Align2::LEFT_CENTER,
+            label,
+            label_font.clone(),
+            TEXT_TERTIARY,
+        );
+
+        // ---- Right: reserve value column width so the middle track sizes
+        // correctly. We paint the value AFTER the track to keep ordering
+        // explicit, but allocate the rect now.
+        let avail = ui.available_width();
+        let track_w = (avail - SLIDER_VALUE_W).max(1.0);
+
+        // ---- Middle: track + knob ------------------------------------------
+        let (track_rect, response) = ui.allocate_exact_size(
+            egui::vec2(track_w, SLIDER_ROW_H),
+            egui::Sense::click_and_drag(),
+        );
+        let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
+
+        // Handle interaction: clicking or dragging anywhere in the track
+        // region snaps/scrubs the value. We use the latest interact pointer
+        // position from the response so click and drag share one code path.
+        let denom = (max - min).max(f32::EPSILON);
+        if response.clicked() || response.dragged() {
+            if let Some(p) = response.interact_pointer_pos() {
+                let span = (track_rect.right() - track_rect.left()).max(1.0);
+                let t = ((p.x - track_rect.left()) / span).clamp(0.0, 1.0);
+                let new_v = min + t * denom;
+                if (new_v - *value).abs() > f32::EPSILON {
+                    *value = new_v;
+                }
+            }
+        }
+
+        // Clamp once after possibly being mutated externally (or by us).
+        let clamped = value.clamp(min, max);
+        if (clamped - *value).abs() > f32::EPSILON {
+            *value = clamped;
+        }
+        let t = ((*value - min) / denom).clamp(0.0, 1.0);
+
+        // Track sub-rect: 3 px tall, centered vertically.
+        let mid_y = track_rect.center().y;
+        let bar_top = mid_y - SLIDER_TRACK_H * 0.5;
+        let bar_bot = mid_y + SLIDER_TRACK_H * 0.5;
+        let bar_rect = egui::Rect::from_min_max(
+            egui::pos2(track_rect.left(), bar_top),
+            egui::pos2(track_rect.right(), bar_bot),
+        );
+        let painter = ui.painter();
+        painter.rect_filled(bar_rect, 1.0, SURFACE_MUTE);
+
+        // Fill: left edge → knob, ACCENT_DIM.
+        let knob_x = track_rect.left() + t * (track_rect.right() - track_rect.left());
+        let fill_rect = egui::Rect::from_min_max(
+            egui::pos2(track_rect.left(), bar_top),
+            egui::pos2(knob_x, bar_bot),
+        );
+        painter.rect_filled(fill_rect, 1.0, ACCENT_DIM);
+
+        // Glow first, then solid knob on top.
+        let knob_pos = egui::pos2(knob_x, mid_y);
+        painter.circle_filled(knob_pos, SLIDER_GLOW_R, ACCENT_DIM);
+        painter.circle_filled(knob_pos, SLIDER_KNOB_R, ACCENT);
+
+        // ---- Right: numeric value, right-aligned ----------------------------
+        let (value_rect, _) = ui.allocate_exact_size(
+            egui::vec2(SLIDER_VALUE_W, SLIDER_ROW_H),
+            egui::Sense::hover(),
+        );
+        let text = format!("{:.*}", display_decimals, *value);
+        ui.painter().text(
+            egui::pos2(value_rect.right(), value_rect.center().y),
+            egui::Align2::RIGHT_CENTER,
+            text,
+            value_font,
+            TEXT_PRIMARY,
+        );
+
+        out_response = Some(response);
+    });
+
+    out_response.expect("horizontal closure always populates response")
+}
+
 /// Format `peak |ψ|²` for the hud pill. Uses scientific notation with one
 /// fractional digit and a Unicode minus sign for the exponent when negative.
 fn format_peak(value: f64) -> String {
