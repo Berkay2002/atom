@@ -31,10 +31,43 @@ impl Default for UiState {
     }
 }
 
+/// Named (label, n, l, m) presets for the quick-jump dropdown.
+pub const PRESETS: &[(&str, u32, u32, i32)] = &[
+    ("1s",            1, 0,  0),
+    ("2s",            2, 0,  0),
+    ("2p_x",          2, 1,  1),
+    ("2p_y",          2, 1, -1),
+    ("2p_z",          2, 1,  0),
+    ("3d_xy",         3, 2, -2),
+    ("3d_xz",         3, 2,  1),
+    ("3d_yz",         3, 2, -1),
+    ("3d_(x^2-y^2)",  3, 2,  2),
+    ("3d_(z^2)",      3, 2,  0),
+    ("4f_(z^3)",      4, 3,  0),
+];
+
 pub fn panel(ctx: &egui::Context, s: &mut UiState) -> bool {
     let mut needs_rebake = false;
     egui::SidePanel::left("controls").show(ctx, |ui| {
         ui.heading("atom");
+        ui.separator();
+        let mut preset_choice: Option<usize> = None;
+        egui::ComboBox::from_label("preset")
+            .selected_text("choose…")
+            .show_ui(ui, |ui| {
+                for (i, p) in PRESETS.iter().enumerate() {
+                    if ui.selectable_label(false, p.0).clicked() {
+                        preset_choice = Some(i);
+                    }
+                }
+            });
+        if let Some(i) = preset_choice {
+            let p = PRESETS[i];
+            s.n = p.1;
+            s.l = p.2;
+            s.m = p.3;
+            needs_rebake = true;
+        }
         ui.separator();
         ui.label("Quantum numbers");
 

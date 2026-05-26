@@ -34,6 +34,7 @@ struct GpuState {
     egui_state: egui_winit::State,
     egui_renderer: egui_wgpu::Renderer,
     ui: UiState,
+    last_frame: std::time::Instant,
 }
 
 impl GpuState {
@@ -98,6 +99,7 @@ impl GpuState {
             egui_wgpu::RendererOptions::default(),
         );
         let ui = UiState::default();
+        let last_frame = std::time::Instant::now();
         Self {
             surface, device, queue, config, window, renderer,
             camera,
@@ -105,6 +107,7 @@ impl GpuState {
             current_colormap: 0,
             mouse_down: false, last_mouse: None,
             egui_ctx, egui_state, egui_renderer, ui,
+            last_frame,
         }
     }
 
@@ -119,6 +122,13 @@ impl GpuState {
         if self.ui.fit_requested {
             self.camera.fit(volume::box_extent(self.current_n) as f32);
             self.ui.fit_requested = false;
+        }
+
+        let now = std::time::Instant::now();
+        let dt = now.duration_since(self.last_frame).as_secs_f32();
+        self.last_frame = now;
+        if self.ui.auto_rotate {
+            self.camera.azimuth += 0.2 * dt;
         }
 
         let raw_input = self.egui_state.take_egui_input(&self.window);
