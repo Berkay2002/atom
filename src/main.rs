@@ -73,7 +73,7 @@ impl GpuState {
             .find(|f| f.is_srgb())
             .unwrap_or(caps.formats[0]);
         let config = wgpu::SurfaceConfiguration {
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
             format,
             width: size.width.max(1),
             height: size.height.max(1),
@@ -242,7 +242,92 @@ impl GpuState {
             self.egui_renderer.free_texture(id);
         }
 
+        let do_shot = self.ui.screenshot_requested;
+        self.ui.screenshot_requested = false;
+
+        let readback = if do_shot {
+            let bytes_per_pixel = 4u32;
+            let unaligned_bpr = self.config.width * bytes_per_pixel;
+            let align = 256u32;
+            let padded_bpr = ((unaligned_bpr + align - 1) / align) * align;
+            let size = padded_bpr as u64 * self.config.height as u64;
+            let buf = self.device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("readback"),
+                size,
+                usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+            encoder.copy_texture_to_buffer(
+                wgpu::TexelCopyTextureInfo {
+                    texture: &frame.texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                wgpu::TexelCopyBufferInfo {
+                    buffer: &buf,
+                    layout: wgpu::TexelCopyBufferLayout {
+                        offset: 0,
+                        bytes_per_row: Some(padded_bpr),
+                        rows_per_image: Some(self.config.height),
+                    },
+                },
+                wgpu::Extent3d {
+                    width: self.config.width,
+                    height: self.config.height,
+                    depth_or_array_layers: 1,
+                },
+            );
+            Some((buf, padded_bpr))
+        } else {
+            None
+        };
+
         self.queue.submit(Some(encoder.finish()));
+
+        if let Some((buf, padded_bpr)) = readback {
+            let slice = buf.slice(..);
+            slice.map_async(wgpu::MapMode::Read, |_| {});
+            let _ = self.device.poll(wgpu::PollType::wait_indefinitely());
+            let data = slice.get_mapped_range();
+            let (w, h) = (self.config.width as usize, self.config.height as usize);
+            let mut img: Vec<u8> = Vec::with_capacity(w * h * 4);
+            let is_bgra = matches!(
+                self.config.format,
+                wgpu::TextureFormat::Bgra8Unorm | wgpu::TextureFormat::Bgra8UnormSrgb
+            );
+            for y in 0..h {
+                let row_start = y * padded_bpr as usize;
+                let row = &data[row_start..row_start + w * 4];
+                for px in row.chunks_exact(4) {
+                    let (r, g, b) = if is_bgra {
+                        (px[2], px[1], px[0])
+                    } else {
+                        (px[0], px[1], px[2])
+                    };
+                    img.extend_from_slice(&[r, g, b, 255]);
+                }
+            }
+            drop(data);
+            buf.unmap();
+            let ts = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+            let fname = format!(
+                "orbital_n{}l{}m{}_{}.png",
+                self.current_n, self.current_l, self.current_m, ts
+            );
+            image::save_buffer(
+                &fname,
+                &img,
+                w as u32,
+                h as u32,
+                image::ExtendedColorType::Rgba8,
+            )
+            .expect("save png");
+        }
+
         frame.present();
     }
 }
@@ -311,6 +396,9 @@ impl ApplicationHandler for App {
                     if let winit::keyboard::PhysicalKey::Code(code) = ke.physical_key {
                         if code == winit::keyboard::KeyCode::KeyF {
                             gpu.camera.fit(volume::box_extent(gpu.current_n) as f32);
+                        }
+                        if code == winit::keyboard::KeyCode::KeyS {
+                            gpu.ui.screenshot_requested = true;
                         }
                     }
                 }
