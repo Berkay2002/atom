@@ -317,7 +317,6 @@ impl Renderer {
         queue.write_buffer(&self.uniform_buf, 0, bytemuck::cast_slice(&[u]));
     }
 
-    #[allow(dead_code)]
     pub fn replace_volume(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, vol: &Volume) {
         let (tex, view) = upload_volume_texture(device, queue, vol);
         self.volume_tex = tex;
