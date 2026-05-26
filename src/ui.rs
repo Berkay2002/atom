@@ -94,7 +94,8 @@ pub fn panel(ctx: &egui::Context, s: &mut UiState) -> bool {
             .show_ui(ui, |ui| {
                 ui.selectable_value(&mut s.resolution, 128, "128^3");
                 ui.selectable_value(&mut s.resolution, 256, "256^3");
-                ui.selectable_value(&mut s.resolution, 512, "512^3");
+                // 512^3 deferred per spec §3 decision 6 — sync bake on main thread
+                // would freeze UI ~400ms; needs async + double-buffer first.
             });
         let cmap_names: Vec<&str> = crate::colormaps::ALL.iter().map(|(n, _)| *n).collect();
         let current_name = cmap_names
