@@ -298,6 +298,52 @@ pub fn toggle_switch(ui: &mut egui::Ui, on: &mut bool) -> egui::Response {
     response
 }
 
+/// Chevron button size (square).
+const CHEVRON_SIZE: f32 = 18.0;
+
+/// Renders a small 18x18 chevron button used to collapse/expand the HUD card.
+/// Shows `−` (U+2212) when `*expanded == true` and `+` when collapsed. Clicking
+/// the button toggles `*expanded`. Returns the `Response` so callers can react
+/// to `.clicked()` / `.changed()`.
+pub fn chevron_button(ui: &mut egui::Ui, expanded: &mut bool) -> egui::Response {
+    let (rect, mut response) = ui.allocate_exact_size(
+        egui::vec2(CHEVRON_SIZE, CHEVRON_SIZE),
+        egui::Sense::click(),
+    );
+    if response.clicked() {
+        *expanded = !*expanded;
+        response.mark_changed();
+    }
+    let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
+
+    let hovered = response.hovered();
+    let fill = if hovered {
+        lighten_alpha(SURFACE_MUTE, 0.04)
+    } else {
+        SURFACE_MUTE
+    };
+    let glyph_color = if hovered { TEXT_PRIMARY } else { TEXT_SECONDARY };
+
+    let painter = ui.painter();
+    painter.rect(
+        rect,
+        RADIUS_CHIP,
+        fill,
+        egui::Stroke::NONE,
+        egui::StrokeKind::Inside,
+    );
+    let glyph = if *expanded { "\u{2212}" } else { "+" };
+    painter.text(
+        rect.center(),
+        egui::Align2::CENTER_CENTER,
+        glyph,
+        egui::FontId::proportional(BODY_SIZE),
+        glyph_color,
+    );
+
+    response
+}
+
 /// Padding for action buttons.
 const ACTION_PAD_X: f32 = 8.0;
 const ACTION_PAD_Y: f32 = 6.0;

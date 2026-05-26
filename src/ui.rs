@@ -4,7 +4,8 @@
 
 use crate::ui_tokens::{EDGE_INSET, LABEL_SIZE, TEXT_TERTIARY};
 use crate::ui_widgets::{
-    action_button, card_frame, chip_strip, eye_toggle, hud_pill, swatch_row, toggle_switch,
+    action_button, card_frame, chevron_button, chip_strip, eye_toggle, hud_pill, swatch_row,
+    toggle_switch,
 };
 
 pub struct UiState {
@@ -21,6 +22,9 @@ pub struct UiState {
     /// Whether the HUD overlay (card, pill, scale bar) is visible. The eye
     /// toggle stays visible (dimmed) when this is `false`. In-memory only.
     pub hud_visible: bool,
+    /// Whether the HUD card body (everything below the title row) is expanded.
+    /// When `false` the card collapses to its title-only state. In-memory only.
+    pub card_expanded: bool,
 }
 
 impl Default for UiState {
@@ -37,6 +41,7 @@ impl Default for UiState {
             fit_requested: false,
             screenshot_requested: false,
             hud_visible: true,
+            card_expanded: true,
         }
     }
 }
@@ -67,7 +72,16 @@ pub fn panel(ctx: &egui::Context, s: &mut UiState) -> bool {
         .show(ctx, |ui| {
             ui.set_width(card_w);
             card_frame(ui, |ui| {
-                ui.heading("atom");
+                ui.horizontal(|ui| {
+                    ui.heading("atom");
+                    ui.with_layout(
+                        egui::Layout::right_to_left(egui::Align::Center),
+                        |ui| {
+                            chevron_button(ui, &mut s.card_expanded);
+                        },
+                    );
+                });
+                if s.card_expanded {
                 let mut preset_choice: Option<usize> = None;
                 egui::ComboBox::from_label("preset")
                     .selected_text("choose…")
@@ -198,6 +212,7 @@ pub fn panel(ctx: &egui::Context, s: &mut UiState) -> bool {
 
                 if (s.n, s.l, s.m, s.resolution) != old {
                     needs_rebake = true;
+                }
                 }
             });
         });
