@@ -1,5 +1,9 @@
-//! egui side panel: bounded (n, l, m) sliders. Returns `true` from `panel()` if
-//! a parameter that requires a volume rebake changed.
+//! HUD control card: bounded (n, l, m) sliders inside a dark-glass card anchored
+//! to the top-left of the viewport. Returns `true` from `panel()` if a parameter
+//! that requires a volume rebake changed.
+
+use crate::ui_tokens::EDGE_INSET;
+use crate::ui_widgets::card_frame;
 
 pub struct UiState {
     pub n: u32,
@@ -48,83 +52,90 @@ pub const PRESETS: &[(&str, u32, u32, i32)] = &[
 
 pub fn panel(ctx: &egui::Context, s: &mut UiState) -> bool {
     let mut needs_rebake = false;
-    egui::SidePanel::left("controls").show(ctx, |ui| {
-        ui.heading("atom");
-        ui.separator();
-        let mut preset_choice: Option<usize> = None;
-        egui::ComboBox::from_label("preset")
-            .selected_text("choose…")
-            .show_ui(ui, |ui| {
-                for (i, p) in PRESETS.iter().enumerate() {
-                    if ui.selectable_label(false, p.0).clicked() {
-                        preset_choice = Some(i);
-                    }
+    let card_w = (0.38 * ctx.screen_rect().width()).min(320.0);
+    egui::Area::new(egui::Id::new("hud-card"))
+        .anchor(egui::Align2::LEFT_TOP, egui::vec2(EDGE_INSET, EDGE_INSET))
+        .show(ctx, |ui| {
+            ui.set_width(card_w);
+            card_frame(ui, |ui| {
+                ui.heading("atom");
+                ui.separator();
+                let mut preset_choice: Option<usize> = None;
+                egui::ComboBox::from_label("preset")
+                    .selected_text("choose…")
+                    .show_ui(ui, |ui| {
+                        for (i, p) in PRESETS.iter().enumerate() {
+                            if ui.selectable_label(false, p.0).clicked() {
+                                preset_choice = Some(i);
+                            }
+                        }
+                    });
+                if let Some(i) = preset_choice {
+                    let p = PRESETS[i];
+                    s.n = p.1;
+                    s.l = p.2;
+                    s.m = p.3;
+                    needs_rebake = true;
+                }
+                ui.separator();
+                ui.label("Quantum numbers");
+
+                let old = (s.n, s.l, s.m, s.resolution);
+
+                if ui.add(egui::Slider::new(&mut s.n, 1..=6).text("n")).changed() {
+                    if s.l > s.n - 1 { s.l = s.n - 1; }
+                    let l_i = s.l as i32;
+                    s.m = s.m.clamp(-l_i, l_i);
+                }
+                let l_max = s.n - 1;
+                if ui.add(egui::Slider::new(&mut s.l, 0..=l_max).text("l")).changed() {
+                    let l_i = s.l as i32;
+                    s.m = s.m.clamp(-l_i, l_i);
+                }
+                let m_max = s.l as i32;
+                let m_min = -m_max;
+                ui.add(egui::Slider::new(&mut s.m, m_min..=m_max).text("m"));
+
+                ui.separator();
+                ui.label("Visual");
+                egui::ComboBox::from_label("resolution")
+                    .selected_text(format!("{}^3", s.resolution))
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(&mut s.resolution, 128, "128^3");
+                        ui.selectable_value(&mut s.resolution, 256, "256^3");
+                        // 512^3 deferred per spec §3 decision 6 — sync bake on main thread
+                        // would freeze UI ~400ms; needs async + double-buffer first.
+                    });
+                let cmap_names: Vec<&str> =
+                    crate::colormaps::ALL.iter().map(|(n, _)| *n).collect();
+                let current_name = cmap_names
+                    .get(s.colormap_index)
+                    .copied()
+                    .unwrap_or("inferno");
+                egui::ComboBox::from_label("colormap")
+                    .selected_text(current_name)
+                    .show_ui(ui, |ui| {
+                        for (i, name) in cmap_names.iter().enumerate() {
+                            ui.selectable_value(&mut s.colormap_index, i, *name);
+                        }
+                    });
+                ui.add(egui::Slider::new(&mut s.k, 0.1..=20.0).text("k (saturation)"));
+                ui.add(egui::Slider::new(&mut s.exposure, 0.1..=5.0).text("exposure"));
+                ui.checkbox(&mut s.auto_rotate, "auto-rotate camera");
+
+                ui.separator();
+                if ui.button("Fit camera (F)").clicked() {
+                    s.fit_requested = true;
+                }
+                if ui.button("Screenshot (S)").clicked() {
+                    s.screenshot_requested = true;
+                }
+
+                if (s.n, s.l, s.m, s.resolution) != old {
+                    needs_rebake = true;
                 }
             });
-        if let Some(i) = preset_choice {
-            let p = PRESETS[i];
-            s.n = p.1;
-            s.l = p.2;
-            s.m = p.3;
-            needs_rebake = true;
-        }
-        ui.separator();
-        ui.label("Quantum numbers");
-
-        let old = (s.n, s.l, s.m, s.resolution);
-
-        if ui.add(egui::Slider::new(&mut s.n, 1..=6).text("n")).changed() {
-            if s.l > s.n - 1 { s.l = s.n - 1; }
-            let l_i = s.l as i32;
-            s.m = s.m.clamp(-l_i, l_i);
-        }
-        let l_max = s.n - 1;
-        if ui.add(egui::Slider::new(&mut s.l, 0..=l_max).text("l")).changed() {
-            let l_i = s.l as i32;
-            s.m = s.m.clamp(-l_i, l_i);
-        }
-        let m_max = s.l as i32;
-        let m_min = -m_max;
-        ui.add(egui::Slider::new(&mut s.m, m_min..=m_max).text("m"));
-
-        ui.separator();
-        ui.label("Visual");
-        egui::ComboBox::from_label("resolution")
-            .selected_text(format!("{}^3", s.resolution))
-            .show_ui(ui, |ui| {
-                ui.selectable_value(&mut s.resolution, 128, "128^3");
-                ui.selectable_value(&mut s.resolution, 256, "256^3");
-                // 512^3 deferred per spec §3 decision 6 — sync bake on main thread
-                // would freeze UI ~400ms; needs async + double-buffer first.
-            });
-        let cmap_names: Vec<&str> = crate::colormaps::ALL.iter().map(|(n, _)| *n).collect();
-        let current_name = cmap_names
-            .get(s.colormap_index)
-            .copied()
-            .unwrap_or("inferno");
-        egui::ComboBox::from_label("colormap")
-            .selected_text(current_name)
-            .show_ui(ui, |ui| {
-                for (i, name) in cmap_names.iter().enumerate() {
-                    ui.selectable_value(&mut s.colormap_index, i, *name);
-                }
-            });
-        ui.add(egui::Slider::new(&mut s.k, 0.1..=20.0).text("k (saturation)"));
-        ui.add(egui::Slider::new(&mut s.exposure, 0.1..=5.0).text("exposure"));
-        ui.checkbox(&mut s.auto_rotate, "auto-rotate camera");
-
-        ui.separator();
-        if ui.button("Fit camera (F)").clicked() {
-            s.fit_requested = true;
-        }
-        if ui.button("Screenshot (S)").clicked() {
-            s.screenshot_requested = true;
-        }
-
-        if (s.n, s.l, s.m, s.resolution) != old {
-            needs_rebake = true;
-        }
-    });
+        });
     needs_rebake
 }
 

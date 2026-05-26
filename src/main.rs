@@ -3,6 +3,8 @@ mod colormaps;
 mod physics;
 mod render;
 mod ui;
+mod ui_tokens;
+mod ui_widgets;
 mod volume;
 
 use std::sync::Arc;
