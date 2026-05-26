@@ -1,4 +1,5 @@
 mod camera;
+mod colormaps;
 mod physics;
 mod render;
 mod ui;
@@ -26,6 +27,7 @@ struct GpuState {
     current_n: u32,
     current_l: u32,
     current_m: i32,
+    current_colormap: usize,
     mouse_down: bool,
     last_mouse: Option<(f64, f64)>,
     egui_ctx: egui::Context,
@@ -100,6 +102,7 @@ impl GpuState {
             surface, device, queue, config, window, renderer,
             camera,
             current_n: 3, current_l: 2, current_m: 1,
+            current_colormap: 0,
             mouse_down: false, last_mouse: None,
             egui_ctx, egui_state, egui_renderer, ui,
         }
@@ -129,6 +132,11 @@ impl GpuState {
             self.current_n = self.ui.n;
             self.current_l = self.ui.l;
             self.current_m = self.ui.m;
+        }
+        if self.ui.colormap_index != self.current_colormap {
+            let stops = crate::colormaps::ALL[self.ui.colormap_index].1;
+            self.renderer.replace_lut(&self.device, &self.queue, stops);
+            self.current_colormap = self.ui.colormap_index;
         }
         self.egui_state
             .handle_platform_output(&self.window, full_output.platform_output);

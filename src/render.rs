@@ -334,6 +334,21 @@ impl Renderer {
         );
     }
 
+    pub fn replace_lut(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, stops: &[[u8; 3]]) {
+        let (tex, view) = upload_lut_texture(device, queue, stops);
+        self.lut_tex = tex;
+        self.lut_view = view;
+        self.bind_group = make_bind_group(
+            device,
+            &self.bind_group_layout,
+            &self.uniform_buf,
+            &self.volume_view,
+            &self.volume_smp,
+            &self.lut_view,
+            &self.lut_smp,
+        );
+    }
+
     pub fn draw(&self, encoder: &mut wgpu::CommandEncoder, view: &wgpu::TextureView) {
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("raymarch"),

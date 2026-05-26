@@ -63,6 +63,18 @@ pub fn panel(ctx: &egui::Context, s: &mut UiState) -> bool {
                 ui.selectable_value(&mut s.resolution, 256, "256^3");
                 ui.selectable_value(&mut s.resolution, 512, "512^3");
             });
+        let cmap_names: Vec<&str> = crate::colormaps::ALL.iter().map(|(n, _)| *n).collect();
+        let current_name = cmap_names
+            .get(s.colormap_index)
+            .copied()
+            .unwrap_or("inferno");
+        egui::ComboBox::from_label("colormap")
+            .selected_text(current_name)
+            .show_ui(ui, |ui| {
+                for (i, name) in cmap_names.iter().enumerate() {
+                    ui.selectable_value(&mut s.colormap_index, i, *name);
+                }
+            });
         ui.add(egui::Slider::new(&mut s.k, 0.1..=20.0).text("k (saturation)"));
         ui.add(egui::Slider::new(&mut s.exposure, 0.1..=5.0).text("exposure"));
         ui.checkbox(&mut s.auto_rotate, "auto-rotate camera");
