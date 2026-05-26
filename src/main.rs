@@ -207,41 +207,7 @@ impl GpuState {
 
         self.renderer.draw(&mut encoder, &view);
 
-        for (id, image_delta) in &full_output.textures_delta.set {
-            self.egui_renderer
-                .update_texture(&self.device, &self.queue, *id, image_delta);
-        }
-        self.egui_renderer.update_buffers(
-            &self.device,
-            &self.queue,
-            &mut encoder,
-            &paint_jobs,
-            &screen,
-        );
-        {
-            let pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("egui"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
-                    resolve_target: None,
-                    depth_slice: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Load,
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                timestamp_writes: None,
-                occlusion_query_set: None,
-                multiview_mask: None,
-            });
-            self.egui_renderer
-                .render(&mut pass.forget_lifetime(), &paint_jobs, &screen);
-        }
-        for id in &full_output.textures_delta.free {
-            self.egui_renderer.free_texture(id);
-        }
-
+        // Capture screenshot BEFORE the egui overlay so it contains only the orbital.
         let do_shot = self.ui.screenshot_requested;
         self.ui.screenshot_requested = false;
 
@@ -282,6 +248,41 @@ impl GpuState {
         } else {
             None
         };
+
+        for (id, image_delta) in &full_output.textures_delta.set {
+            self.egui_renderer
+                .update_texture(&self.device, &self.queue, *id, image_delta);
+        }
+        self.egui_renderer.update_buffers(
+            &self.device,
+            &self.queue,
+            &mut encoder,
+            &paint_jobs,
+            &screen,
+        );
+        {
+            let pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("egui"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    depth_slice: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            self.egui_renderer
+                .render(&mut pass.forget_lifetime(), &paint_jobs, &screen);
+        }
+        for id in &full_output.textures_delta.free {
+            self.egui_renderer.free_texture(id);
+        }
 
         self.queue.submit(Some(encoder.finish()));
 
