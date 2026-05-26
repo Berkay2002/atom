@@ -57,12 +57,33 @@ pub fn legendre(l: u32, m: u32, x: f64) -> f64 {
     p_curr
 }
 
+/// Radial part of hydrogen wavefunction R_nl(r), in atomic units (a₀ = 1, Z = 1).
+/// R_nl(r) = sqrt((2/n)³ · (n-l-1)!/(2n·(n+l)!)) · e^(-ρ/2) · ρ^l · L_{n-l-1}^{2l+1}(ρ),  ρ = 2r/n
+pub fn radial(n: u32, l: u32, r: f64) -> f64 {
+    debug_assert!(l < n, "l must satisfy l < n");
+    let n_f = n as f64;
+    let rho = 2.0 * r / n_f;
+    let norm_sq = (2.0 / n_f).powi(3) * factorial(n - l - 1) / (2.0 * n_f * factorial(n + l));
+    let norm = norm_sq.sqrt();
+    let lag = laguerre(n - l - 1, 2 * l + 1, rho);
+    norm * (-rho / 2.0).exp() * rho.powi(l as i32) * lag
+}
+
+fn factorial(k: u32) -> f64 {
+    (1..=k).fold(1.0_f64, |acc, i| acc * i as f64)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn approx(a: f64, b: f64) {
         assert!((a - b).abs() < 1e-12, "expected {b}, got {a}");
+    }
+
+    fn approx_rel(a: f64, b: f64, tol: f64) {
+        let scale = b.abs().max(1.0);
+        assert!((a - b).abs() < tol * scale, "expected {b}, got {a}");
     }
 
     #[test]
@@ -93,5 +114,14 @@ mod tests {
         approx(legendre(2, 0, 0.0), -0.5);
         approx(legendre(2, 2, 0.0), 3.0);
         approx(legendre(2, 1, 0.5), -3.0 * 0.5 * (0.75_f64).sqrt());
+    }
+
+    #[test]
+    fn radial_known_values() {
+        // R_{1,0}(r) = 2 e^(-r); at r=0 → 2
+        approx_rel(radial(1, 0, 0.0), 2.0, 1e-12);
+        approx_rel(radial(1, 0, 1.0), 2.0 * (-1.0_f64).exp(), 1e-12);
+        // R_{2,0}(r) = (1/(2·sqrt(2))) · (2-r) · e^(-r/2); at r=0 → 1/sqrt(2)
+        approx_rel(radial(2, 0, 0.0), 1.0 / 2_f64.sqrt(), 1e-12);
     }
 }
