@@ -12,6 +12,9 @@ use egui::Color32;
 /// Card background — rgba(14, 12, 18, 0.85)
 pub const CARD_BG: Color32 = Color32::from_rgba_unmultiplied_const(14, 12, 18, 217);
 
+/// Lighter card variant for floating pills — rgba(14, 12, 18, 0.60).
+pub const CARD_BG_LIGHT: Color32 = Color32::from_rgba_unmultiplied_const(14, 12, 18, 153);
+
 /// Accent — #ff8a4c
 pub const ACCENT: Color32 = Color32::from_rgb(255, 138, 76);
 

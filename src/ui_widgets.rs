@@ -2,9 +2,16 @@
 //! issues add chip strips, swatch rows, glass sliders, etc.
 
 use crate::ui_tokens::{
-    ACCENT, ACCENT_DIM, BODY_SIZE, BORDER, CARD_BG, LABEL_SIZE, RADIUS_CARD, RADIUS_CHIP,
-    RADIUS_PILL, SURFACE_MUTE, TEXT_PRIMARY, TEXT_TERTIARY,
+    ACCENT, ACCENT_DIM, BODY_SIZE, BORDER, CARD_BG, CARD_BG_LIGHT, EDGE_INSET, LABEL_SIZE,
+    RADIUS_CARD, RADIUS_CHIP, RADIUS_PILL, SURFACE_MUTE, TEXT_PRIMARY, TEXT_SECONDARY,
+    TEXT_TERTIARY,
 };
+
+/// Width/height of the eye toggle square, in px.
+const EYE_W: f32 = 28.0;
+
+/// Gap between the eye toggle and the hud pill, in px.
+const PILL_EYE_GAP: f32 = 12.0;
 
 /// Swatch height in pixels (matches v4/v5 mockups).
 const SWATCH_H: f32 = 12.0;
@@ -367,4 +374,121 @@ pub fn action_button(
     }
 
     response
+}
+
+/// Format `peak |ψ|²` for the hud pill. Uses scientific notation with one
+/// fractional digit and a Unicode minus sign for the exponent when negative.
+fn format_peak(value: f64) -> String {
+    let raw = format!("{:.1e}", value);
+    raw.replace('-', "\u{2212}")
+}
+
+/// Renders the top-right HUD pill combining the live FPS readout and the
+/// current peak |ψ|² value. Self-contained `Area`; anchored to the top-right
+/// of the viewport with `EDGE_INSET + EYE_W + PILL_EYE_GAP` of right inset so
+/// it sits to the left of the eye toggle.
+pub fn hud_pill(ctx: &egui::Context, fps: f32, peak: f64) {
+    let right_inset = EDGE_INSET + EYE_W + PILL_EYE_GAP;
+    egui::Area::new(egui::Id::new("hud-pill"))
+        .anchor(egui::Align2::RIGHT_TOP, egui::vec2(-right_inset, EDGE_INSET))
+        .show(ctx, |ui| {
+            egui::Frame::new()
+                .fill(CARD_BG_LIGHT)
+                .stroke(egui::Stroke::new(1.0, BORDER))
+                .corner_radius(RADIUS_PILL)
+                .inner_margin(egui::Margin::symmetric(12, 5))
+                .show(ui, |ui| {
+                    ui.spacing_mut().item_spacing.x = 6.0;
+                    ui.horizontal(|ui| {
+                        // Accent dot with subtle outer glow: paint a larger
+                        // ACCENT_DIM circle behind the 6 px ACCENT dot.
+                        let dot_d = 12.0_f32;
+                        let (dot_rect, _) = ui.allocate_exact_size(
+                            egui::vec2(dot_d, dot_d),
+                            egui::Sense::hover(),
+                        );
+                        let center = dot_rect.center();
+                        let painter = ui.painter();
+                        painter.circle_filled(center, 5.0, ACCENT_DIM);
+                        painter.circle_filled(center, 3.0, ACCENT);
+
+                        // FPS value
+                        ui.label(
+                            egui::RichText::new(format!("{:.1}", fps))
+                                .size(BODY_SIZE)
+                                .color(TEXT_PRIMARY),
+                        );
+                        // " FPS" label
+                        ui.label(
+                            egui::RichText::new("FPS")
+                                .size(LABEL_SIZE)
+                                .color(TEXT_TERTIARY),
+                        );
+
+                        // Faint vertical separator.
+                        let sep_h = BODY_SIZE + 2.0;
+                        let (sep_rect, _) = ui.allocate_exact_size(
+                            egui::vec2(1.0, sep_h),
+                            egui::Sense::hover(),
+                        );
+                        ui.painter().rect_filled(sep_rect, 0.0, BORDER);
+
+                        // "peak |ψ|²" label
+                        ui.label(
+                            egui::RichText::new("peak |\u{03c8}|\u{00b2}")
+                                .size(LABEL_SIZE)
+                                .color(TEXT_TERTIARY),
+                        );
+                        // peak value
+                        ui.label(
+                            egui::RichText::new(format_peak(peak))
+                                .size(BODY_SIZE)
+                                .color(TEXT_PRIMARY),
+                        );
+                    });
+                });
+        });
+}
+
+/// Renders the top-right 28x28 eye toggle. Clicking flips `hud_visible`.
+/// When the HUD is hidden the widget dims to ~35 % opacity and swaps glyphs.
+pub fn eye_toggle(ctx: &egui::Context, hud_visible: &mut bool) {
+    egui::Area::new(egui::Id::new("eye-toggle"))
+        .anchor(egui::Align2::RIGHT_TOP, egui::vec2(-EDGE_INSET, EDGE_INSET))
+        .show(ctx, |ui| {
+            if !*hud_visible {
+                ui.set_opacity(0.35);
+            }
+            let (rect, response) = ui.allocate_exact_size(
+                egui::vec2(EYE_W, EYE_W),
+                egui::Sense::click(),
+            );
+            let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
+
+            let painter = ui.painter();
+            painter.rect(
+                rect,
+                6.0,
+                CARD_BG_LIGHT,
+                egui::Stroke::new(1.0, BORDER),
+                egui::StrokeKind::Inside,
+            );
+
+            let (glyph, color) = if *hud_visible {
+                ("\u{25c9}", TEXT_SECONDARY)
+            } else {
+                ("\u{25ce}", TEXT_TERTIARY)
+            };
+            painter.text(
+                rect.center(),
+                egui::Align2::CENTER_CENTER,
+                glyph,
+                egui::FontId::proportional(BODY_SIZE + 4.0),
+                color,
+            );
+
+            if response.clicked() {
+                *hud_visible = !*hud_visible;
+            }
+        });
 }

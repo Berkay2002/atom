@@ -3,7 +3,9 @@
 //! that requires a volume rebake changed.
 
 use crate::ui_tokens::{EDGE_INSET, LABEL_SIZE, TEXT_TERTIARY};
-use crate::ui_widgets::{action_button, card_frame, chip_strip, swatch_row, toggle_switch};
+use crate::ui_widgets::{
+    action_button, card_frame, chip_strip, eye_toggle, hud_pill, swatch_row, toggle_switch,
+};
 
 pub struct UiState {
     pub n: u32,
@@ -16,6 +18,9 @@ pub struct UiState {
     pub colormap_index: usize,
     pub fit_requested: bool,
     pub screenshot_requested: bool,
+    /// Whether the HUD overlay (card, pill, scale bar) is visible. The eye
+    /// toggle stays visible (dimmed) when this is `false`. In-memory only.
+    pub hud_visible: bool,
 }
 
 impl Default for UiState {
@@ -31,6 +36,7 @@ impl Default for UiState {
             colormap_index: 0,
             fit_requested: false,
             screenshot_requested: false,
+            hud_visible: true,
         }
     }
 }
@@ -51,6 +57,9 @@ pub const PRESETS: &[(&str, u32, u32, i32)] = &[
 ];
 
 pub fn panel(ctx: &egui::Context, s: &mut UiState) -> bool {
+    if !s.hud_visible {
+        return false;
+    }
     let mut needs_rebake = false;
     let card_w = (0.38 * ctx.screen_rect().width()).min(320.0);
     egui::Area::new(egui::Id::new("hud-card"))
@@ -202,17 +211,14 @@ pub struct HudInputs {
     pub camera_radius: f32,  // a₀
 }
 
-pub fn hud(ctx: &egui::Context, h: &HudInputs) {
-    egui::Area::new(egui::Id::new("fps"))
-        .anchor(egui::Align2::RIGHT_TOP, egui::vec2(-12.0, 12.0))
-        .show(ctx, |ui| {
-            ui.label(format!("{:5.1} FPS", h.fps));
-        });
-    egui::Area::new(egui::Id::new("density"))
-        .anchor(egui::Align2::RIGHT_BOTTOM, egui::vec2(-12.0, -12.0))
-        .show(ctx, |ui| {
-            ui.label(format!("peak |ψ|² = {:.3e} a₀⁻³", h.peak_psi_sq));
-        });
+pub fn hud(ctx: &egui::Context, h: &HudInputs, s: &mut UiState) {
+    // The eye toggle is always visible (dimmed when hidden) so users can
+    // restore the HUD without remembering the keyboard shortcut.
+    eye_toggle(ctx, &mut s.hud_visible);
+    if !s.hud_visible {
+        return;
+    }
+    hud_pill(ctx, h.fps, h.peak_psi_sq);
     egui::Area::new(egui::Id::new("scale"))
         .anchor(egui::Align2::LEFT_BOTTOM, egui::vec2(12.0, -12.0))
         .show(ctx, |ui| {

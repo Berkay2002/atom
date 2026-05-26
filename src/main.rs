@@ -157,12 +157,16 @@ impl GpuState {
         let mut rebake_requested = false;
         let full_output = self.egui_ctx.run(raw_input, |ctx| {
             rebake_requested = ui::panel(ctx, &mut self.ui);
-            ui::hud(ctx, &ui::HudInputs {
-                fps: self.fps_value,
-                peak_psi_sq: self.last_peak,
-                box_half: volume::box_extent(self.current_n),
-                camera_radius: self.camera.radius,
-            });
+            ui::hud(
+                ctx,
+                &ui::HudInputs {
+                    fps: self.fps_value,
+                    peak_psi_sq: self.last_peak,
+                    box_half: volume::box_extent(self.current_n),
+                    camera_radius: self.camera.radius,
+                },
+                &mut self.ui,
+            );
         });
         if rebake_requested {
             let v = volume::bake(self.ui.n, self.ui.l, self.ui.m, self.ui.resolution);
@@ -401,11 +405,18 @@ impl ApplicationHandler for App {
             WindowEvent::KeyboardInput { event: ke, .. } => {
                 if ke.state == winit::event::ElementState::Pressed {
                     if let winit::keyboard::PhysicalKey::Code(code) = ke.physical_key {
-                        if code == winit::keyboard::KeyCode::KeyF {
+                        // Guard against firing while a text field has focus.
+                        // No text fields exist today, but this protects future
+                        // additions (e.g. search input).
+                        let text_focus = gpu.egui_ctx.egui_wants_keyboard_input();
+                        if !text_focus && code == winit::keyboard::KeyCode::KeyF {
                             gpu.camera.fit(volume::box_extent(gpu.current_n) as f32);
                         }
-                        if code == winit::keyboard::KeyCode::KeyS {
+                        if !text_focus && code == winit::keyboard::KeyCode::KeyS {
                             gpu.ui.screenshot_requested = true;
+                        }
+                        if !text_focus && code == winit::keyboard::KeyCode::KeyH {
+                            gpu.ui.hud_visible = !gpu.ui.hud_visible;
                         }
                     }
                 }
