@@ -156,8 +156,8 @@ impl GpuState {
         let raw_input = self.egui_state.take_egui_input(&self.window);
         let mut rebake_requested = false;
         let full_output = self.egui_ctx.run(raw_input, |ctx| {
-            rebake_requested = ui::panel(ctx, &mut self.ui);
-            ui::hud(
+            let rebake_from_panel = ui::panel(ctx, &mut self.ui);
+            let rebake_from_hud = ui::hud(
                 ctx,
                 &ui::HudInputs {
                     fps: self.fps_value,
@@ -167,6 +167,7 @@ impl GpuState {
                 },
                 &mut self.ui,
             );
+            rebake_requested = rebake_from_panel || rebake_from_hud;
         });
         if rebake_requested {
             let v = volume::bake(self.ui.n, self.ui.l, self.ui.m, self.ui.resolution);

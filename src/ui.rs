@@ -5,7 +5,7 @@
 use crate::ui_tokens::{EDGE_INSET, LABEL_SIZE, TEXT_TERTIARY};
 use crate::ui_widgets::{
     action_button, card_frame, chevron_button, chip_strip, eye_toggle, glass_slider, hud_pill,
-    swatch_row, toggle_switch,
+    preset_strip, scale_readout, swatch_row, toggle_switch,
 };
 
 pub struct UiState {
@@ -82,24 +82,6 @@ pub fn panel(ctx: &egui::Context, s: &mut UiState) -> bool {
                     );
                 });
                 if s.card_expanded {
-                let mut preset_choice: Option<usize> = None;
-                egui::ComboBox::from_label("preset")
-                    .selected_text("choose…")
-                    .show_ui(ui, |ui| {
-                        for (i, p) in PRESETS.iter().enumerate() {
-                            if ui.selectable_label(false, p.0).clicked() {
-                                preset_choice = Some(i);
-                            }
-                        }
-                    });
-                if let Some(i) = preset_choice {
-                    let p = PRESETS[i];
-                    s.n = p.1;
-                    s.l = p.2;
-                    s.m = p.3;
-                    needs_rebake = true;
-                }
-                ui.separator();
                 ui.label(
                     egui::RichText::new("QUANTUM NUMBERS")
                         .size(LABEL_SIZE)
@@ -233,60 +215,16 @@ pub struct HudInputs {
     pub camera_radius: f32,  // a₀
 }
 
-pub fn hud(ctx: &egui::Context, h: &HudInputs, s: &mut UiState) {
-    // The eye toggle is always visible (dimmed when hidden) so users can
-    // restore the HUD without remembering the keyboard shortcut.
+/// Renders the floating HUD overlays (eye toggle, pill, scale readout, preset
+/// strip). Returns `true` if a preset chip was clicked and the volume needs to
+/// be rebaked. The eye toggle is always visible (dimmed when hidden) so users
+/// can restore the HUD without the keyboard shortcut.
+pub fn hud(ctx: &egui::Context, h: &HudInputs, s: &mut UiState) -> bool {
     eye_toggle(ctx, &mut s.hud_visible);
     if !s.hud_visible {
-        return;
+        return false;
     }
     hud_pill(ctx, h.fps, h.peak_psi_sq);
-    egui::Area::new(egui::Id::new("scale"))
-        .anchor(egui::Align2::LEFT_BOTTOM, egui::vec2(12.0, -12.0))
-        .show(ctx, |ui| {
-            // Visible scale bar: fixed 200 px wide. Compute world width that maps to
-            // 200 px at the current camera distance using a perspective-fov approximation:
-            //   visible_world_half = camera_radius · tan(fov/2)
-            // We use fov=60° (matches Camera::new), aspect via screen size.
-            let bar_px = 200.0_f32;
-            let viewport_h = ctx.screen_rect().height();
-            // visible_world_h spans the FULL window height at z = camera_radius.
-            let visible_world_h = 2.0 * h.camera_radius * (60.0_f32.to_radians() * 0.5).tan();
-            let a0_per_px = visible_world_h / viewport_h;
-            let bar_a0 = (bar_px * a0_per_px) as f64;
-            let bar_nm = bar_a0 * 0.052_917_7;
-            let (response, painter) = ui.allocate_painter(
-                egui::vec2(bar_px, 18.0),
-                egui::Sense::hover(),
-            );
-            let rect = response.rect;
-            let mid_y = rect.center().y;
-            let color = egui::Color32::WHITE;
-            painter.line_segment(
-                [
-                    egui::pos2(rect.left(), mid_y),
-                    egui::pos2(rect.right(), mid_y),
-                ],
-                egui::Stroke { width: 2.0, color },
-            );
-            // Small end caps.
-            painter.line_segment(
-                [
-                    egui::pos2(rect.left(), mid_y - 5.0),
-                    egui::pos2(rect.left(), mid_y + 5.0),
-                ],
-                egui::Stroke { width: 2.0, color },
-            );
-            painter.line_segment(
-                [
-                    egui::pos2(rect.right(), mid_y - 5.0),
-                    egui::pos2(rect.right(), mid_y + 5.0),
-                ],
-                egui::Stroke { width: 2.0, color },
-            );
-            ui.label(format!(
-                "{:.1} a₀  ({:.3} nm)   |   box: ±{:.1} a₀",
-                bar_a0, bar_nm, h.box_half
-            ));
-        });
+    scale_readout(ctx, h.camera_radius, h.box_half);
+    preset_strip(ctx, PRESETS, &mut s.n, &mut s.l, &mut s.m)
 }

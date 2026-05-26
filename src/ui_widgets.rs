@@ -631,6 +631,370 @@ pub fn hud_pill(ctx: &egui::Context, fps: f32, peak: f64) {
         });
 }
 
+/// Vertical padding inside a preset chip, in px.
+const PRESET_CHIP_PAD_Y: f32 = 4.0;
+
+/// Horizontal padding inside a preset chip, in px.
+const PRESET_CHIP_PAD_X: f32 = 9.0;
+
+/// Horizontal gap between adjacent preset chips, in px.
+const PRESET_CHIP_GAP: f32 = 6.0;
+
+/// Approximate width to reserve for the scale readout on the bottom-left so the
+/// preset strip on the bottom-right doesn't overlap it. The bar is 120 px, plus
+/// inline text. ~260 px is a safe conservative estimate.
+const SCALE_READOUT_RESERVE: f32 = 260.0;
+
+/// Sub-helper: lay out a single preset chip's rect (allocate + sense), paint
+/// background/text, and return whether it was clicked this frame. `selected`
+/// drives the highlight (accent fill + stroke).
+fn paint_preset_chip(
+    ui: &mut egui::Ui,
+    label: &str,
+    selected: bool,
+) -> bool {
+    let font_id = egui::FontId::proportional(BODY_SIZE);
+    let galley = ui.painter().layout_no_wrap(
+        label.to_string(),
+        font_id.clone(),
+        TEXT_PRIMARY,
+    );
+    let chip_size = egui::vec2(
+        galley.size().x + 2.0 * PRESET_CHIP_PAD_X,
+        galley.size().y + 2.0 * PRESET_CHIP_PAD_Y,
+    );
+    let (rect, response) = ui.allocate_exact_size(chip_size, egui::Sense::click());
+    let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
+
+    let (mut fill, stroke) = if selected {
+        (ACCENT_DIM, egui::Stroke::new(1.0, ACCENT))
+    } else {
+        (CARD_BG_LIGHT, egui::Stroke::new(1.0, BORDER))
+    };
+    if response.hovered() && !selected {
+        fill = lighten_alpha(fill, 0.05);
+    }
+
+    let painter = ui.painter();
+    painter.rect(rect, RADIUS_PILL, fill, stroke, egui::StrokeKind::Inside);
+    painter.text(
+        rect.center(),
+        egui::Align2::CENTER_CENTER,
+        label,
+        font_id,
+        TEXT_PRIMARY,
+    );
+
+    response.clicked()
+}
+
+/// Estimate the natural width (in px) the strip would need to render all preset
+/// chips inline at the current font.
+fn estimate_preset_strip_width(
+    ctx: &egui::Context,
+    presets: &[(&str, u32, u32, i32)],
+) -> f32 {
+    let font_id = egui::FontId::proportional(BODY_SIZE);
+    let n = presets.len() as f32;
+    let total_gap = PRESET_CHIP_GAP * (n - 1.0).max(0.0);
+    let chip_text_w: f32 = presets
+        .iter()
+        .map(|p| {
+            ctx.fonts_mut(|f| {
+                f.layout_no_wrap(p.0.to_string(), font_id.clone(), TEXT_PRIMARY)
+                    .size()
+                    .x
+            })
+        })
+        .sum();
+    let chip_padding = 2.0 * PRESET_CHIP_PAD_X * n;
+    chip_text_w + chip_padding + total_gap
+}
+
+/// Renders the bottom-right preset chip strip. Each chip corresponds to one
+/// entry in `presets`; clicking applies that entry's `(n, l, m)` to the mutable
+/// references. Returns `true` if a chip was clicked this frame (caller should
+/// trigger a rebake).
+///
+/// Overflow strategy: if the natural strip width would exceed
+/// `screen_w - 2*EDGE_INSET - SCALE_READOUT_RESERVE`, only the chips that fit
+/// are rendered inline, followed by a `More…` chip that opens a popover (a
+/// second `Area` painted just above the strip) containing the remaining chips.
+pub fn preset_strip(
+    ctx: &egui::Context,
+    presets: &[(&str, u32, u32, i32)],
+    n: &mut u32,
+    l: &mut u32,
+    m: &mut i32,
+) -> bool {
+    if presets.is_empty() {
+        return false;
+    }
+    let mut changed = false;
+
+    // Per-chip widths (matches paint_preset_chip's chip_size calc).
+    let font_id = egui::FontId::proportional(BODY_SIZE);
+    let chip_widths: Vec<f32> = presets
+        .iter()
+        .map(|p| {
+            let text_w = ctx.fonts_mut(|f| {
+                f.layout_no_wrap(p.0.to_string(), font_id.clone(), TEXT_PRIMARY)
+                    .size()
+                    .x
+            });
+            text_w + 2.0 * PRESET_CHIP_PAD_X
+        })
+        .collect();
+    let more_w = ctx.fonts_mut(|f| {
+        f.layout_no_wrap("More\u{2026}".to_string(), font_id.clone(), TEXT_PRIMARY)
+            .size()
+            .x
+    }) + 2.0 * PRESET_CHIP_PAD_X;
+
+    let screen_w = ctx.screen_rect().width();
+    let natural_w = estimate_preset_strip_width(ctx, presets);
+    let available_w = (screen_w - 2.0 * EDGE_INSET - SCALE_READOUT_RESERVE).max(0.0);
+
+    // Decide split: how many leading chips render inline.
+    let (visible_count, needs_more) = if natural_w <= available_w {
+        (presets.len(), false)
+    } else {
+        // Greedily fit chips + reserve room for the More chip.
+        let mut used = 0.0_f32;
+        let mut count = 0usize;
+        for (i, w) in chip_widths.iter().enumerate() {
+            let gap = if i == 0 { 0.0 } else { PRESET_CHIP_GAP };
+            let next = used + gap + w + PRESET_CHIP_GAP + more_w;
+            if next > available_w {
+                break;
+            }
+            used += gap + w;
+            count += 1;
+        }
+        (count, true)
+    };
+
+    let popup_id = egui::Id::new("preset-strip-more-popup");
+    let mut popup_open: bool =
+        ctx.data(|d| d.get_temp::<bool>(popup_id).unwrap_or(false));
+
+    egui::Area::new(egui::Id::new("preset-strip"))
+        .anchor(egui::Align2::RIGHT_BOTTOM, egui::vec2(-EDGE_INSET, -EDGE_INSET))
+        .show(ctx, |ui| {
+            ui.spacing_mut().item_spacing.x = PRESET_CHIP_GAP;
+            ui.horizontal(|ui| {
+                for (i, p) in presets.iter().take(visible_count).enumerate() {
+                    let selected = p.1 == *n && p.2 == *l && p.3 == *m;
+                    if paint_preset_chip(ui, p.0, selected) {
+                        *n = p.1;
+                        *l = p.2;
+                        *m = p.3;
+                        changed = true;
+                        popup_open = false;
+                        let _ = i;
+                    }
+                }
+                if needs_more {
+                    // The "More…" chip is highlighted if the current selection
+                    // lives in the overflow tail (so users can still see where
+                    // their orbital lives when scrolled out of view).
+                    let tail_has_selection = presets[visible_count..]
+                        .iter()
+                        .any(|p| p.1 == *n && p.2 == *l && p.3 == *m);
+                    if paint_preset_chip(ui, "More\u{2026}", tail_has_selection) {
+                        popup_open = !popup_open;
+                    }
+                }
+            });
+        });
+
+    if needs_more && popup_open {
+        // The popover is its own `Area`, painted just above the strip and
+        // right-aligned with it. The tail chips wrap inside the popup.
+        egui::Area::new(egui::Id::new("preset-strip-popup"))
+            .anchor(
+                egui::Align2::RIGHT_BOTTOM,
+                egui::vec2(-EDGE_INSET, -(EDGE_INSET + 36.0)),
+            )
+            .order(egui::Order::Foreground)
+            .show(ctx, |ui| {
+                let max_w = (screen_w - 2.0 * EDGE_INSET).min(360.0);
+                ui.set_max_width(max_w);
+                egui::Frame::new()
+                    .fill(CARD_BG)
+                    .stroke(egui::Stroke::new(1.0, BORDER))
+                    .corner_radius(RADIUS_CARD)
+                    .inner_margin(egui::Margin::symmetric(10, 10))
+                    .show(ui, |ui| {
+                        ui.spacing_mut().item_spacing =
+                            egui::vec2(PRESET_CHIP_GAP, PRESET_CHIP_GAP);
+                        ui.horizontal_wrapped(|ui| {
+                            for p in presets.iter().skip(visible_count) {
+                                let selected =
+                                    p.1 == *n && p.2 == *l && p.3 == *m;
+                                if paint_preset_chip(ui, p.0, selected) {
+                                    *n = p.1;
+                                    *l = p.2;
+                                    *m = p.3;
+                                    changed = true;
+                                    popup_open = false;
+                                }
+                            }
+                        });
+                    });
+            });
+    }
+
+    ctx.data_mut(|d| d.insert_temp(popup_id, popup_open));
+
+    changed
+}
+
+/// Renders the bottom-left scale readout: a 120 px white bar with end caps,
+/// the inline `{a₀} · {nm}` measurement, and a small-cap `BOX ±N a₀` label.
+/// Both the bar and the text get a subtle dark drop-shadow for legibility over
+/// bright orbital lobes (no card behind this widget).
+///
+/// Math: bar length in a₀ = bar_px · a₀-per-px, where a₀-per-px is derived from
+/// the camera's 60° vertical FOV. nm = a₀ · 0.0529177. `box_half` is rendered
+/// verbatim in the BOX label.
+pub fn scale_readout(ctx: &egui::Context, camera_radius: f32, box_half: f64) {
+    let bar_px = 120.0_f32;
+    let viewport_h = ctx.screen_rect().height();
+    let visible_world_h = 2.0 * camera_radius * (60.0_f32.to_radians() * 0.5).tan();
+    let a0_per_px = visible_world_h / viewport_h;
+    let bar_a0 = (bar_px * a0_per_px) as f64;
+    let bar_nm = bar_a0 * 0.052_917_7;
+
+    egui::Area::new(egui::Id::new("scale"))
+        .anchor(
+            egui::Align2::LEFT_BOTTOM,
+            egui::vec2(EDGE_INSET, -EDGE_INSET),
+        )
+        .show(ctx, |ui| {
+            // ---- Bar with end caps + shadow -------------------------------------
+            let (response, painter) = ui.allocate_painter(
+                egui::vec2(bar_px, 14.0),
+                egui::Sense::hover(),
+            );
+            let rect = response.rect;
+            let mid_y = rect.center().y;
+            let cap_half = 4.0_f32;
+            let shadow = egui::Color32::from_black_alpha(128);
+            let white = egui::Color32::WHITE;
+            let stroke_w = 1.5_f32;
+
+            // Shadow pass: 1 px offset down/right, black @ 50% alpha.
+            let off = egui::vec2(1.0, 1.0);
+            painter.line_segment(
+                [
+                    egui::pos2(rect.left() + off.x, mid_y + off.y),
+                    egui::pos2(rect.right() + off.x, mid_y + off.y),
+                ],
+                egui::Stroke { width: stroke_w, color: shadow },
+            );
+            painter.line_segment(
+                [
+                    egui::pos2(rect.left() + off.x, mid_y - cap_half + off.y),
+                    egui::pos2(rect.left() + off.x, mid_y + cap_half + off.y),
+                ],
+                egui::Stroke { width: stroke_w, color: shadow },
+            );
+            painter.line_segment(
+                [
+                    egui::pos2(rect.right() + off.x, mid_y - cap_half + off.y),
+                    egui::pos2(rect.right() + off.x, mid_y + cap_half + off.y),
+                ],
+                egui::Stroke { width: stroke_w, color: shadow },
+            );
+
+            // Main pass: white bar + caps.
+            painter.line_segment(
+                [
+                    egui::pos2(rect.left(), mid_y),
+                    egui::pos2(rect.right(), mid_y),
+                ],
+                egui::Stroke { width: stroke_w, color: white },
+            );
+            painter.line_segment(
+                [
+                    egui::pos2(rect.left(), mid_y - cap_half),
+                    egui::pos2(rect.left(), mid_y + cap_half),
+                ],
+                egui::Stroke { width: stroke_w, color: white },
+            );
+            painter.line_segment(
+                [
+                    egui::pos2(rect.right(), mid_y - cap_half),
+                    egui::pos2(rect.right(), mid_y + cap_half),
+                ],
+                egui::Stroke { width: stroke_w, color: white },
+            );
+
+            // ---- Inline text + BOX label, each with a drop-shadow ---------------
+            ui.spacing_mut().item_spacing.y = 2.0;
+            let text_shadow = egui::Color32::from_black_alpha(178);
+
+            let meas = format!("{:.1} a\u{2080} \u{00b7} {:.3} nm", bar_a0, bar_nm);
+            let box_txt = format!("BOX \u{00b1}{:.1} a\u{2080}", box_half);
+
+            let body_font = egui::FontId::proportional(BODY_SIZE);
+            let label_font = egui::FontId::proportional(LABEL_SIZE);
+
+            // Allocate row for measurement text + paint shadow then primary.
+            let meas_galley = ui.painter().layout_no_wrap(
+                meas.clone(),
+                body_font.clone(),
+                TEXT_PRIMARY,
+            );
+            let (meas_rect, _) = ui.allocate_exact_size(
+                meas_galley.size(),
+                egui::Sense::hover(),
+            );
+            let painter = ui.painter();
+            painter.text(
+                meas_rect.left_top() + egui::vec2(1.0, 1.0),
+                egui::Align2::LEFT_TOP,
+                &meas,
+                body_font.clone(),
+                text_shadow,
+            );
+            painter.text(
+                meas_rect.left_top(),
+                egui::Align2::LEFT_TOP,
+                &meas,
+                body_font,
+                TEXT_PRIMARY,
+            );
+
+            // BOX small-cap label: TEXT_TERTIARY at LABEL_SIZE, with shadow.
+            let box_galley = ui.painter().layout_no_wrap(
+                box_txt.clone(),
+                label_font.clone(),
+                TEXT_TERTIARY,
+            );
+            let (box_rect, _) = ui.allocate_exact_size(
+                box_galley.size(),
+                egui::Sense::hover(),
+            );
+            let painter = ui.painter();
+            painter.text(
+                box_rect.left_top() + egui::vec2(1.0, 1.0),
+                egui::Align2::LEFT_TOP,
+                &box_txt,
+                label_font.clone(),
+                text_shadow,
+            );
+            painter.text(
+                box_rect.left_top(),
+                egui::Align2::LEFT_TOP,
+                &box_txt,
+                label_font,
+                TEXT_TERTIARY,
+            );
+        });
+}
+
 /// Renders the top-right 28x28 eye toggle. Clicking flips `hud_visible`.
 /// When the HUD is hidden the widget dims to ~35 % opacity and swaps glyphs.
 pub fn eye_toggle(ctx: &egui::Context, hud_visible: &mut bool) {
