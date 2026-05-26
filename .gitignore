@@ -1,3 +1,6 @@
 /target
 /orbital_*.png
 /.superpowers/
+
+# wasm-pack build output
+/crates/atom-core/pkg/

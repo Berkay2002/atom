@@ -4,7 +4,22 @@ version = "0.1.0"
 edition = "2021"
 
 [lib]
-crate-type = ["rlib"]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = []
+# Enables the `wasm` module and pulls in wasm-bindgen + js-sys.
+# Desktop builds leave this off and pay zero cost.
+wasm = ["dep:wasm-bindgen", "dep:js-sys"]
 
 [dependencies]
+wasm-bindgen = { version = "0.2", optional = true }
+js-sys = { version = "0.3", optional = true }
+
+# rayon doesn't support wasm32 (no atomics), and we don't need it there —
+# the wasm bake runs serially on the JS thread.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 rayon = "1"
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+wasm-bindgen-test = "0.3"

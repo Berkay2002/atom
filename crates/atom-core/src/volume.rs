@@ -1,7 +1,11 @@
 //! Adaptive cartesian box around the nucleus, sized to fit the current orbital.
 //! Cubic box of edge length 6·n²·a₀; box_extent returns the half-edge (radius).
-//! `bake` evaluates |ψ|² on a regular grid (rayon-parallelized) and peak-normalizes.
+//! `bake` evaluates |ψ|² on a regular grid and peak-normalizes. On native
+//! targets the evaluation is rayon-parallelized; on `wasm32` it falls back
+//! to a plain serial iterator (rayon needs atomics that aren't in our
+//! wasm32-unknown-unknown target).
 
+#[cfg(not(target_arch = "wasm32"))]
 use rayon::prelude::*;
 
 /// Half-edge of the cubic bounding box for orbital with principal quantum number n.
@@ -26,18 +30,20 @@ pub fn bake(n: u32, l: u32, m: i32, res: usize) -> Volume {
     let step = 2.0 * half_extent / res as f64;
     let total = res * res * res;
 
-    let raw: Vec<f64> = (0..total)
-        .into_par_iter()
-        .map(|idx| {
-            let i = idx % res;
-            let j = (idx / res) % res;
-            let k = idx / (res * res);
-            let x = -half_extent + (i as f64 + 0.5) * step;
-            let y = -half_extent + (j as f64 + 0.5) * step;
-            let z = -half_extent + (k as f64 + 0.5) * step;
-            crate::physics::psi_squared(n, l, m, x, y, z)
-        })
-        .collect();
+    let sample = |idx: usize| -> f64 {
+        let i = idx % res;
+        let j = (idx / res) % res;
+        let k = idx / (res * res);
+        let x = -half_extent + (i as f64 + 0.5) * step;
+        let y = -half_extent + (j as f64 + 0.5) * step;
+        let z = -half_extent + (k as f64 + 0.5) * step;
+        crate::physics::psi_squared(n, l, m, x, y, z)
+    };
+
+    #[cfg(not(target_arch = "wasm32"))]
+    let raw: Vec<f64> = (0..total).into_par_iter().map(sample).collect();
+    #[cfg(target_arch = "wasm32")]
+    let raw: Vec<f64> = (0..total).map(sample).collect();
 
     let peak = raw.iter().copied().fold(0.0_f64, f64::max);
     let inv = if peak > 0.0 { 1.0 / peak } else { 0.0 };

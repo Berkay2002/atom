@@ -7,3 +7,6 @@
 
 pub mod physics;
 pub mod volume;
+
+#[cfg(feature = "wasm")]
+pub mod wasm;
