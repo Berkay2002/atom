@@ -1,14 +1,15 @@
+mod camera;
 mod physics;
 mod render;
 mod volume;
 
 use std::sync::Arc;
-use glam::{Mat4, Vec3};
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::window::{Window, WindowId};
 
+use camera::Camera;
 use render::Renderer;
 use volume::bake;
 
@@ -19,6 +20,12 @@ struct GpuState {
     config: wgpu::SurfaceConfiguration,
     window: Arc<Window>,
     renderer: Renderer,
+    camera: Camera,
+    current_n: u32,
+    current_l: u32,
+    current_m: i32,
+    mouse_down: bool,
+    last_mouse: Option<(f64, f64)>,
 }
 
 impl GpuState {
@@ -65,13 +72,22 @@ impl GpuState {
         surface.configure(&device, &config);
         let initial = bake(3, 2, 1, 128);
         let renderer = Renderer::new(&device, &queue, config.format, &initial);
-        Self { surface, device, queue, config, window, renderer }
+        let aspect = config.width as f32 / config.height as f32;
+        let mut camera = Camera::new(2.0 * volume::box_extent(3) as f32, aspect);
+        camera.fit(volume::box_extent(3) as f32);
+        Self {
+            surface, device, queue, config, window, renderer,
+            camera,
+            current_n: 3, current_l: 2, current_m: 1,
+            mouse_down: false, last_mouse: None,
+        }
     }
 
     fn resize(&mut self, w: u32, h: u32) {
         self.config.width = w.max(1);
         self.config.height = h.max(1);
         self.surface.configure(&self.device, &self.config);
+        self.camera.aspect = self.config.width as f32 / self.config.height as f32;
     }
 
     fn render(&mut self) {
@@ -81,23 +97,18 @@ impl GpuState {
             _ => return,
         };
         let view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
-
-        let half = volume::box_extent(3) as f32;
-        let radius = 2.0 * half;
-        let elev = 30_f32.to_radians();
-        let az = 45_f32.to_radians();
-        let cam_pos = Vec3::new(
-            radius * elev.cos() * az.sin(),
-            radius * elev.sin(),
-            radius * elev.cos() * az.cos(),
+        let half = volume::box_extent(self.current_n) as f32;
+        let view_proj = self.camera.view_proj();
+        let cam_pos = self.camera.position();
+        self.renderer.update_uniforms(
+            &self.queue,
+            view_proj,
+            cam_pos,
+            half,
+            5.0,
+            1.0,
+            self.renderer.res as f32,
         );
-        let aspect = self.config.width as f32 / self.config.height as f32;
-        let proj = Mat4::perspective_rh(60_f32.to_radians(), aspect, 0.1, radius * 4.0);
-        let view_m = Mat4::look_at_rh(cam_pos, Vec3::ZERO, Vec3::Y);
-        let view_proj = proj * view_m;
-        self.renderer
-            .update_uniforms(&self.queue, view_proj, cam_pos, half, 5.0, 1.0, self.renderer.res as f32);
-
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("frame") });
@@ -134,6 +145,42 @@ impl ApplicationHandler for App {
             WindowEvent::RedrawRequested => {
                 gpu.render();
                 gpu.window.request_redraw();
+            }
+            WindowEvent::MouseInput { state, button, .. } => {
+                if button == winit::event::MouseButton::Left {
+                    gpu.mouse_down = state == winit::event::ElementState::Pressed;
+                    if !gpu.mouse_down {
+                        gpu.last_mouse = None;
+                    }
+                }
+            }
+            WindowEvent::CursorMoved { position, .. } => {
+                let (x, y) = (position.x, position.y);
+                if gpu.mouse_down {
+                    if let Some((px, py)) = gpu.last_mouse {
+                        let dx = (x - px) as f32;
+                        let dy = (y - py) as f32;
+                        gpu.camera.orbit(dx, dy);
+                    }
+                }
+                gpu.last_mouse = Some((x, y));
+            }
+            WindowEvent::MouseWheel { delta, .. } => {
+                let scroll = match delta {
+                    winit::event::MouseScrollDelta::LineDelta(_, y) => y,
+                    winit::event::MouseScrollDelta::PixelDelta(p) => p.y as f32 / 50.0,
+                };
+                let factor = (1.0 - scroll * 0.1).clamp(0.5, 2.0);
+                gpu.camera.zoom(factor);
+            }
+            WindowEvent::KeyboardInput { event: ke, .. } => {
+                if ke.state == winit::event::ElementState::Pressed {
+                    if let winit::keyboard::PhysicalKey::Code(code) = ke.physical_key {
+                        if code == winit::keyboard::KeyCode::KeyF {
+                            gpu.camera.fit(volume::box_extent(gpu.current_n) as f32);
+                        }
+                    }
+                }
             }
             _ => {}
         }
