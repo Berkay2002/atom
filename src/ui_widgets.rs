@@ -578,11 +578,195 @@ pub fn glass_slider(
     out_response.expect("horizontal closure always populates response")
 }
 
-/// Format `peak |ψ|²` for the hud pill. Uses scientific notation with one
-/// fractional digit and a Unicode minus sign for the exponent when negative.
-fn format_peak(value: f64) -> String {
+/// Decompose `value` into `(mantissa_string, exponent)` using `{:.1e}` format,
+/// or `None` when the value is non-finite.
+fn split_scientific(value: f64) -> Option<(String, i32)> {
+    if !value.is_finite() {
+        return None;
+    }
     let raw = format!("{:.1e}", value);
-    raw.replace('-', "\u{2212}")
+    let e_idx = raw.find('e')?;
+    let mantissa = raw[..e_idx].to_string();
+    let exp = raw[e_idx + 1..].parse::<i32>().ok()?;
+    Some((mantissa, exp))
+}
+
+/// Allocate space for and paint a scientific-notation value `mantissa × 10ⁿ`
+/// inline in the current horizontal layout. The exponent is painted at a
+/// smaller size and raised Y so we don't depend on font coverage of the
+/// Unicode superscript block (egui's bundled Ubuntu-Light is missing U+207B).
+fn paint_scientific(ui: &mut egui::Ui, value: f64, body_size: f32, color: egui::Color32) {
+    let (mantissa, exp) = match split_scientific(value) {
+        Some(t) => t,
+        None => {
+            ui.label(
+                egui::RichText::new("\u{2014}")
+                    .size(body_size)
+                    .color(color),
+            );
+            return;
+        }
+    };
+
+    // "1.8 × 10" rendered at body size, exponent rendered at sub-size + raised.
+    let main_text = format!("{} \u{00d7} 10", mantissa);
+    let exp_text = if exp < 0 {
+        format!("\u{2212}{}", exp.unsigned_abs())
+    } else {
+        exp.to_string()
+    };
+    let main_font = egui::FontId::proportional(body_size);
+    let exp_size = body_size * ORB_SUPER_SCALE;
+    let exp_font = egui::FontId::proportional(exp_size);
+
+    let main_galley =
+        ui.painter()
+            .layout_no_wrap(main_text, main_font, color);
+    let exp_galley = ui.painter().layout_no_wrap(exp_text, exp_font, color);
+
+    let main_w = main_galley.size().x;
+    let main_h = main_galley.size().y;
+    let exp_w = exp_galley.size().x;
+    let total_w = main_w + exp_w;
+    // Reserve enough vertical room for the raised exponent.
+    let row_h = main_h + body_size * ORB_SUPER_RISE_RATIO * 2.0;
+
+    let (rect, _) =
+        ui.allocate_exact_size(egui::vec2(total_w, row_h), egui::Sense::hover());
+    let painter = ui.painter();
+
+    let main_y = rect.center().y - main_h * 0.5;
+    painter.galley(egui::pos2(rect.left(), main_y), main_galley, color);
+
+    let exp_y =
+        rect.center().y - main_h * 0.5 - body_size * ORB_SUPER_RISE_RATIO;
+    painter.galley(egui::pos2(rect.left() + main_w, exp_y), exp_galley, color);
+}
+
+// ---- Math-style orbital label rendering ---------------------------------
+
+/// Typographic level for a parsed orbital-label segment. `0` is the main
+/// baseline (e.g. `3d`), `1` is a subscript run (e.g. the `xz` in `3d_xz`),
+/// and `2` is a superscript nested inside a subscript (the `²` in
+/// `3d_(x^2-y^2)`).
+struct OrbSegment {
+    text: String,
+    level: u8,
+}
+
+const ORB_SUB_SCALE: f32 = 0.72;
+const ORB_SUPER_SCALE: f32 = 0.62;
+const ORB_SUB_DROP_RATIO: f32 = 0.25;
+const ORB_SUPER_RISE_RATIO: f32 = 0.12;
+
+/// Parse the `PRESETS` wire format `<prefix>[_<sub>]` (sub may be wrapped in
+/// parens and may contain `^N` for inner superscripts).
+fn parse_orbital(label: &str) -> Vec<OrbSegment> {
+    let mut out = Vec::new();
+    let (prefix, sub_opt) = match label.find('_') {
+        Some(i) => (&label[..i], Some(&label[i + 1..])),
+        None => (label, None),
+    };
+    if !prefix.is_empty() {
+        out.push(OrbSegment { text: prefix.to_string(), level: 0 });
+    }
+    if let Some(mut sub) = sub_opt {
+        let bytes = sub.as_bytes();
+        if bytes.len() >= 2 && bytes[0] == b'(' && bytes[bytes.len() - 1] == b')' {
+            sub = &sub[1..sub.len() - 1];
+        }
+        let mut current = String::new();
+        let mut chars = sub.chars();
+        while let Some(c) = chars.next() {
+            if c == '^' {
+                if !current.is_empty() {
+                    out.push(OrbSegment {
+                        text: std::mem::take(&mut current),
+                        level: 1,
+                    });
+                }
+                if let Some(sc) = chars.next() {
+                    out.push(OrbSegment { text: sc.to_string(), level: 2 });
+                }
+            } else if c == '-' {
+                current.push('\u{2212}'); // Unicode minus for visual weight
+            } else {
+                current.push(c);
+            }
+        }
+        if !current.is_empty() {
+            out.push(OrbSegment { text: current, level: 1 });
+        }
+    }
+    out
+}
+
+fn orbital_font_size(main: f32, level: u8) -> f32 {
+    match level {
+        0 => main,
+        1 => main * ORB_SUB_SCALE,
+        2 => main * ORB_SUPER_SCALE,
+        _ => main,
+    }
+}
+
+/// Measure the total horizontal width of a math-rendered orbital label.
+fn measure_orbital(ctx: &egui::Context, label: &str, main_size: f32) -> f32 {
+    let segments = parse_orbital(label);
+    ctx.fonts_mut(|f| {
+        segments
+            .iter()
+            .map(|s| {
+                let size = orbital_font_size(main_size, s.level);
+                f.layout_no_wrap(
+                    s.text.clone(),
+                    egui::FontId::proportional(size),
+                    TEXT_PRIMARY,
+                )
+                .size()
+                .x
+            })
+            .sum()
+    })
+}
+
+/// Paint an orbital label centered at `center` with subscript/superscript
+/// segments rendered at scaled sizes and offset Y positions.
+fn paint_orbital(
+    painter: &egui::Painter,
+    center: egui::Pos2,
+    label: &str,
+    main_size: f32,
+    color: egui::Color32,
+) {
+    let segments = parse_orbital(label);
+    let galleys: Vec<_> = segments
+        .iter()
+        .map(|s| {
+            let size = orbital_font_size(main_size, s.level);
+            painter.layout_no_wrap(
+                s.text.clone(),
+                egui::FontId::proportional(size),
+                color,
+            )
+        })
+        .collect();
+    let total_w: f32 = galleys.iter().map(|g| g.size().x).sum();
+
+    let mut x = center.x - total_w * 0.5;
+    for (seg, galley) in segments.iter().zip(galleys.into_iter()) {
+        let h = galley.size().y;
+        let center_y_off = match seg.level {
+            0 => 0.0,
+            1 => main_size * ORB_SUB_DROP_RATIO,
+            2 => -main_size * ORB_SUPER_RISE_RATIO,
+            _ => 0.0,
+        };
+        let y_top = center.y + center_y_off - h * 0.5;
+        let w = galley.size().x;
+        painter.galley(egui::pos2(x, y_top), galley, color);
+        x += w;
+    }
 }
 
 /// Renders the top-right HUD pill combining the live FPS readout and the
@@ -641,12 +825,10 @@ pub fn hud_pill(ctx: &egui::Context, fps: f32, peak: f64) {
                                 .size(LABEL_SIZE)
                                 .color(TEXT_TERTIARY),
                         );
-                        // peak value
-                        ui.label(
-                            egui::RichText::new(format_peak(peak))
-                                .size(BODY_SIZE)
-                                .color(TEXT_PRIMARY),
-                        );
+                        // peak value — custom-painted so the exponent renders
+                        // as a real superscript instead of relying on Unicode
+                        // characters that Ubuntu-Light is missing (U+207B).
+                        paint_scientific(ui, peak, BODY_SIZE, TEXT_PRIMARY);
                     });
                 });
         });
@@ -674,15 +856,14 @@ fn paint_preset_chip(
     label: &str,
     selected: bool,
 ) -> bool {
-    let font_id = egui::FontId::proportional(BODY_SIZE);
-    let galley = ui.painter().layout_no_wrap(
-        label.to_string(),
-        font_id.clone(),
-        TEXT_PRIMARY,
-    );
+    let main_size = BODY_SIZE;
+    let measured_w = measure_orbital(ui.ctx(), label, main_size);
+    // Vertical extent ≈ main height plus the subscript drop; pad on top of
+    // that to keep the chip from looking cramped.
+    let inner_h = main_size + main_size * ORB_SUB_DROP_RATIO;
     let chip_size = egui::vec2(
-        galley.size().x + 2.0 * PRESET_CHIP_PAD_X,
-        galley.size().y + 2.0 * PRESET_CHIP_PAD_Y,
+        measured_w + 2.0 * PRESET_CHIP_PAD_X,
+        inner_h + 2.0 * PRESET_CHIP_PAD_Y,
     );
     let (rect, response) = ui.allocate_exact_size(chip_size, egui::Sense::click());
     let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
@@ -698,35 +879,22 @@ fn paint_preset_chip(
 
     let painter = ui.painter();
     painter.rect(rect, RADIUS_PILL, fill, stroke, egui::StrokeKind::Inside);
-    painter.text(
-        rect.center(),
-        egui::Align2::CENTER_CENTER,
-        label,
-        font_id,
-        TEXT_PRIMARY,
-    );
+    paint_orbital(&painter, rect.center(), label, main_size, TEXT_PRIMARY);
 
     response.clicked()
 }
 
 /// Estimate the natural width (in px) the strip would need to render all preset
-/// chips inline at the current font.
+/// chips inline at the current font, using the math-style orbital renderer.
 fn estimate_preset_strip_width(
     ctx: &egui::Context,
     presets: &[(&str, u32, u32, i32)],
 ) -> f32 {
-    let font_id = egui::FontId::proportional(BODY_SIZE);
     let n = presets.len() as f32;
     let total_gap = PRESET_CHIP_GAP * (n - 1.0).max(0.0);
     let chip_text_w: f32 = presets
         .iter()
-        .map(|p| {
-            ctx.fonts_mut(|f| {
-                f.layout_no_wrap(p.0.to_string(), font_id.clone(), TEXT_PRIMARY)
-                    .size()
-                    .x
-            })
-        })
+        .map(|p| measure_orbital(ctx, p.0, BODY_SIZE))
         .sum();
     let chip_padding = 2.0 * PRESET_CHIP_PAD_X * n;
     chip_text_w + chip_padding + total_gap
@@ -753,24 +921,14 @@ pub fn preset_strip(
     }
     let mut changed = false;
 
-    // Per-chip widths (matches paint_preset_chip's chip_size calc).
-    let font_id = egui::FontId::proportional(BODY_SIZE);
+    // Per-chip widths (matches paint_preset_chip's chip_size calc using the
+    // math-style orbital renderer).
     let chip_widths: Vec<f32> = presets
         .iter()
-        .map(|p| {
-            let text_w = ctx.fonts_mut(|f| {
-                f.layout_no_wrap(p.0.to_string(), font_id.clone(), TEXT_PRIMARY)
-                    .size()
-                    .x
-            });
-            text_w + 2.0 * PRESET_CHIP_PAD_X
-        })
+        .map(|p| measure_orbital(ctx, p.0, BODY_SIZE) + 2.0 * PRESET_CHIP_PAD_X)
         .collect();
-    let more_w = ctx.fonts_mut(|f| {
-        f.layout_no_wrap("More\u{2026}".to_string(), font_id.clone(), TEXT_PRIMARY)
-            .size()
-            .x
-    }) + 2.0 * PRESET_CHIP_PAD_X;
+    let more_w =
+        measure_orbital(ctx, "More\u{2026}", BODY_SIZE) + 2.0 * PRESET_CHIP_PAD_X;
 
     let screen_w = ctx.screen_rect().width();
     let natural_w = estimate_preset_strip_width(ctx, presets);
