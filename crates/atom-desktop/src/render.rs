@@ -2,7 +2,7 @@ use bytemuck::{Pod, Zeroable};
 use glam::{Mat4, Vec3};
 use wgpu::util::DeviceExt;
 
-use crate::volume::Volume;
+use atom_core::volume::Volume;
 
 #[repr(C)]
 #[derive(Copy, Clone, Pod, Zeroable)]

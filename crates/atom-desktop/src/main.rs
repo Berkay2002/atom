@@ -1,11 +1,9 @@
 mod camera;
 mod colormaps;
-mod physics;
 mod render;
 mod ui;
 mod ui_tokens;
 mod ui_widgets;
-mod volume;
 
 use std::sync::Arc;
 use winit::application::ApplicationHandler;
@@ -13,6 +11,7 @@ use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::window::{Window, WindowId};
 
+use atom_core::volume;
 use camera::Camera;
 use render::Renderer;
 use ui::UiState;

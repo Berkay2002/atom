@@ -1,19 +1,10 @@
-[package]
-name = "atom"
-version = "0.1.0"
-edition = "2021"
+[workspace]
+resolver = "2"
+members = ["crates/atom-core", "crates/atom-desktop"]
 
-[dependencies]
-wgpu       = "29"
-winit      = "0.30"
-egui       = "0.34"
-egui-wgpu  = "0.34"
-egui-winit = "0.34"
-pollster   = "0.4"
-bytemuck   = { version = "1", features = ["derive"] }
-glam       = "0.33"
-rayon      = "1"
-image      = { version = "0.25", default-features = false, features = ["png"] }
+[workspace.package]
+edition = "2021"
+version = "0.1.0"
 
 [profile.release]
 opt-level = 3

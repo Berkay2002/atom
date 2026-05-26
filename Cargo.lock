@@ -134,9 +134,17 @@ dependencies = [
 ]
 
 [[package]]
-name = "atom"
+name = "atom-core"
 version = "0.1.0"
 dependencies = [
+ "rayon",
+]
+
+[[package]]
+name = "atom-desktop"
+version = "0.1.0"
+dependencies = [
+ "atom-core",
  "bytemuck",
  "egui",
  "egui-wgpu",
@@ -144,7 +152,6 @@ dependencies = [
  "glam",
  "image",
  "pollster",
- "rayon",
  "wgpu",
  "winit",
 ]
