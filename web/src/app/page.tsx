@@ -59,9 +59,10 @@ function HomeContent() {
   const [colormap, setColormap] = useState<ColormapName>(DEFAULT_COLORMAP);
   const [autoRotate, setAutoRotate] = useState<boolean>(DEFAULT_STORED_STATE.autoRotate);
   const [hudVisible, setHudVisible] = useState<boolean>(DEFAULT_STORED_STATE.hudVisible);
-  // Bare-Z toggle ships in issue 03; the field exists in state today so
-  // shareable URLs round-trip the flag cleanly when that toggle lands.
-  const [useBareZ, setUseBareZ] = useState<boolean>(false);
+  // Bare-Z toggle — surfaced in the Controls UI (issue 03). Persisted to
+  // localStorage and to the shareable URL so the user's choice survives
+  // reloads either way.
+  const [useBareZ, setUseBareZ] = useState<boolean>(DEFAULT_STORED_STATE.useBareZ);
   // Decode-error banner. Cleared on dismiss; only ever set once per page
   // load (URL hydration is one-shot).
   const [decodeError, setDecodeError] = useState<string | null>(null);
@@ -91,6 +92,7 @@ function HomeContent() {
       setColormap(stored.colormap);
       setAutoRotate(stored.autoRotate);
       setHudVisible(stored.hudVisible);
+      setUseBareZ(stored.useBareZ);
       /* eslint-enable react-hooks/set-state-in-effect */
 
       loadCodec().then(() => {
@@ -118,6 +120,7 @@ function HomeContent() {
       setColormap(stored.colormap);
       setAutoRotate(stored.autoRotate);
       setHudVisible(stored.hudVisible);
+      setUseBareZ(stored.useBareZ);
       hydratedRef.current = true;
       // Kick off the codec init proactively so the *next* state change
       // can write the URL without waiting for wasm-bindgen on the
@@ -146,10 +149,11 @@ function HomeContent() {
       colormap,
       autoRotate,
       hudVisible,
+      useBareZ,
     };
     const timer = setTimeout(() => saveStoredState(snapshot), STORAGE_DEBOUNCE_MS);
     return () => clearTimeout(timer);
-  }, [elementZ, params.n, params.l, params.m, colormap, autoRotate, hudVisible]);
+  }, [elementZ, params.n, params.l, params.m, colormap, autoRotate, hudVisible, useBareZ]);
 
   // Debounced URL writer — encode the current scene state and push it
   // into the address bar via `router.replace` so the back button stays
@@ -227,6 +231,8 @@ function HomeContent() {
           onColormapChange={setColormap}
           autoRotate={autoRotate}
           onAutoRotateChange={setAutoRotate}
+          useBareZ={useBareZ}
+          onUseBareZChange={setUseBareZ}
         />
       )}
       <EyeToggle visible={hudVisible} onToggle={toggleHud} />

@@ -49,6 +49,11 @@ export type ControlsProps = {
   onColormapChange: (next: ColormapName) => void;
   autoRotate: boolean;
   onAutoRotateChange: (next: boolean) => void;
+  /** Bare-Z toggle. `false` (default) uses Slater-screened `z_eff`;
+   *  `true` uses the bare atomic number `Z` so users can see the
+   *  shielding effect by toggling between the two. */
+  useBareZ: boolean;
+  onUseBareZChange: (next: boolean) => void;
 };
 
 const N_MIN = 1;
@@ -223,6 +228,7 @@ const LABEL_TOOLTIPS: Record<string, string> = {
   colormap: 'Color palette applied to the density',
   presets: 'Common named orbitals',
   autoRotate: 'Spin the camera around the orbital (~12s per revolution). Drag still works on top.',
+  bareZ: "Bare Z removes electron shielding to show what the orbital would look like if the nucleus's full charge reached the electron.",
 };
 
 const N_TOOLTIPS: Record<number, string> = {
@@ -519,6 +525,8 @@ export default function Controls({
   onColormapChange,
   autoRotate,
   onAutoRotateChange,
+  useBareZ,
+  onUseBareZChange,
 }: ControlsProps) {
   // Keep pointer events from bubbling into the canvas drag/zoom handlers.
   const stop = (e: PointerEvent<HTMLDivElement>) => {
@@ -542,6 +550,12 @@ export default function Controls({
       onWheel={(e) => e.stopPropagation()}
     >
       <ElementPicker value={elementZ} onPick={onElementChange} />
+      <ToggleRow
+        label={useBareZ ? 'bare Z' : 'effective Z'}
+        labelTooltip={LABEL_TOOLTIPS.bareZ}
+        value={useBareZ}
+        onChange={onUseBareZChange}
+      />
       <hr style={dividerStyle} />
       <ChipStrip
         label="n"

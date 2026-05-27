@@ -16,6 +16,12 @@ pub struct UiState {
     pub n: u32,
     pub l: u32,
     pub m: i32,
+    /// When `true`, the bake uses the bare atomic number `Z` instead of
+    /// the Slater-screened `z_eff`. Lets users watch shielding's effect
+    /// on orbital size by comparison. Threaded through to
+    /// `View.use_bare_z` in `main.rs` so URL serialization (issue 04)
+    /// captures it automatically.
+    pub use_bare_z: bool,
     pub resolution: usize,
     pub k: f32,
     pub exposure: f32,
@@ -47,6 +53,7 @@ impl Default for UiState {
             n: 3,
             l: 2,
             m: 1,
+            use_bare_z: false,
             resolution: 256,
             k: 5.0,
             exposure: 1.0,
@@ -126,7 +133,7 @@ pub fn panel(ctx: &egui::Context, s: &mut UiState) -> bool {
                 });
                 let render_expanded = s.card_expanded && !s.auto_collapsed;
                 if render_expanded {
-                let old = (s.element_z, s.n, s.l, s.m, s.resolution);
+                let old = (s.element_z, s.n, s.l, s.m, s.use_bare_z, s.resolution);
 
                 // Element picker — functional, unstyled per issue 02.
                 // 18 chips laid out in three 6-wide rows so each chip
@@ -162,6 +169,27 @@ pub fn panel(ctx: &egui::Context, s: &mut UiState) -> bool {
                         // re-bake fires below via the `old` comparison.
                     }
                 }
+
+                // Bare-Z toggle — sits directly below the element picker so
+                // the relationship between element choice and shielding is
+                // visually grouped. Off (default) uses Slater-screened
+                // `z_eff`; on uses the bare atomic number `Z` and the
+                // orbital collapses inward (e.g. carbon's 2p shrinks).
+                ui.horizontal(|ui| {
+                    let label = if s.use_bare_z { "bare Z" } else { "effective Z" };
+                    ui.label(label);
+                    ui.with_layout(
+                        egui::Layout::right_to_left(egui::Align::Center),
+                        |ui| {
+                            toggle_switch(ui, &mut s.use_bare_z);
+                        },
+                    );
+                })
+                .response
+                .on_hover_text(
+                    "Bare Z removes electron shielding to show what the orbital \
+                     would look like if the nucleus's full charge reached the electron.",
+                );
 
                 ui.separator();
 
@@ -273,7 +301,7 @@ pub fn panel(ctx: &egui::Context, s: &mut UiState) -> bool {
                     }
                 });
 
-                if (s.element_z, s.n, s.l, s.m, s.resolution) != old {
+                if (s.element_z, s.n, s.l, s.m, s.use_bare_z, s.resolution) != old {
                     needs_rebake = true;
                 }
                 }

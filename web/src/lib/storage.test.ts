@@ -32,6 +32,7 @@ describe('parseStoredState', () => {
       colormap: 'VIRIDIS',
       autoRotate: true,
       hudVisible: false,
+      useBareZ: true,
     };
     expect(parseStoredState(serializeStoredState(s))).toEqual(s);
   });
@@ -90,15 +91,27 @@ describe('parseStoredState', () => {
     expect(parseStoredState(raw)!.colormap).toBe('INFERNO');
   });
 
-  it('replaces non-boolean autoRotate/hudVisible with defaults', () => {
+  it('replaces non-boolean autoRotate/hudVisible/useBareZ with defaults', () => {
     const raw = JSON.stringify({
       ...DEFAULT_STORED_STATE,
       autoRotate: 'yes',
       hudVisible: 0,
+      useBareZ: 'true',
     });
     const parsed = parseStoredState(raw)!;
     expect(parsed.autoRotate).toBe(DEFAULT_STORED_STATE.autoRotate);
     expect(parsed.hudVisible).toBe(DEFAULT_STORED_STATE.hudVisible);
+    expect(parsed.useBareZ).toBe(DEFAULT_STORED_STATE.useBareZ);
+  });
+
+  it('preserves a true useBareZ flag', () => {
+    const raw = JSON.stringify({ ...DEFAULT_STORED_STATE, useBareZ: true });
+    expect(parseStoredState(raw)!.useBareZ).toBe(true);
+  });
+
+  it('defaults useBareZ to false when missing from the stored blob', () => {
+    const raw = JSON.stringify({ n: 2, l: 1, m: 0 });
+    expect(parseStoredState(raw)!.useBareZ).toBe(false);
   });
 
   it('replaces NaN/Infinity in n/l/m with defaults before clamping', () => {

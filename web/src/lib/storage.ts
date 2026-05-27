@@ -23,6 +23,10 @@ export type StoredState = {
   colormap: ColormapName;
   autoRotate: boolean;
   hudVisible: boolean;
+  /** Bare-Z toggle. When `true`, the bake uses the bare atomic number
+   *  `Z` instead of the Slater-screened `z_eff`. Persisted so the
+   *  toggle survives a reload even without a URL hash. */
+  useBareZ: boolean;
 };
 
 // Slice 05 defaults — kept here so the page and the parser agree on the
@@ -36,6 +40,7 @@ export const DEFAULT_STORED_STATE: StoredState = {
   colormap: 'INFERNO',
   autoRotate: false,
   hudVisible: true,
+  useBareZ: false,
 };
 
 const ELEMENT_Z_MIN = 1;
@@ -104,6 +109,7 @@ export function parseStoredState(raw: string | null | undefined): StoredState | 
     colormap: coerceColormap(o.colormap),
     autoRotate: coerceBool(o.autoRotate, DEFAULT_STORED_STATE.autoRotate),
     hudVisible: coerceBool(o.hudVisible, DEFAULT_STORED_STATE.hudVisible),
+    useBareZ: coerceBool(o.useBareZ, DEFAULT_STORED_STATE.useBareZ),
   };
 }
 

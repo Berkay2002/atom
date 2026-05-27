@@ -190,7 +190,10 @@ impl GpuState {
                         m: self.ui.m,
                     },
                 }],
-                view: View::default(),
+                view: View {
+                    use_bare_z: self.ui.use_bare_z,
+                    ..View::default()
+                },
             };
             let v = volume::bake_scene(&scene, self.ui.resolution);
             self.last_peak = v.peak;
@@ -353,9 +356,16 @@ impl GpuState {
                 .duration_since(std::time::UNIX_EPOCH)
                 .map(|d| d.as_secs())
                 .unwrap_or(0);
+            // Element is included so screenshots from different elements
+            // (Carbon vs Oxygen 2p, say) get distinct filenames — the
+            // user can diff them side-by-side without a guessing game.
             let fname = format!(
-                "orbital_n{}l{}m{}_{}.png",
-                self.current_n, self.current_l, self.current_m, ts
+                "orbital_z{}_n{}l{}m{}_{}.png",
+                self.current_element_z,
+                self.current_n,
+                self.current_l,
+                self.current_m,
+                ts,
             );
             image::save_buffer(
                 &fname,
