@@ -1,0 +1,26 @@
+{
+  "name": "Shielding across period 2",
+  "description": "Watch the 2p orbital shrink as effective nuclear charge grows from boron to fluorine. Same orbital, same shielding electrons — only the proton count changes.",
+  "steps": [
+    {
+      "scene": "v1:5/2/1/0/eff/0/1.00",
+      "caption": "Boron (Z = 5), 2p orbital. The two inner 1s electrons screen most of the nucleus, so this outer electron feels an effective charge of only about 2.6. The cloud sits comparatively far from the nucleus."
+    },
+    {
+      "scene": "v1:6/2/1/0/eff/0/1.00",
+      "caption": "Carbon (Z = 6), 2p orbital. We added one proton but the shielding is almost unchanged, so Z_eff jumps to about 3.25. The cloud pulls noticeably tighter — already smaller than boron's."
+    },
+    {
+      "scene": "v1:7/2/1/0/eff/0/1.00",
+      "caption": "Nitrogen (Z = 7), 2p orbital. Z_eff is now around 3.9. Each new proton tugs the cloud inward more than the new same-shell electron pushes it out, because same-shell partners are weak screeners."
+    },
+    {
+      "scene": "v1:8/2/1/0/eff/0/1.00",
+      "caption": "Oxygen (Z = 8), 2p orbital. Z_eff is roughly 4.55 — the orbital is now markedly compact compared to boron's. This monotonic contraction across a period is why atomic radii shrink left-to-right."
+    },
+    {
+      "scene": "v1:9/2/1/0/eff/0/1.00",
+      "caption": "Fluorine (Z = 9), 2p orbital. With Z_eff near 5.2 the cloud is at its tightest in this tour. Fluorine's small, hard-pulled valence electrons are exactly why it's the most electronegative element of all."
+    }
+  ]
+}

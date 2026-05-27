@@ -1,0 +1,14 @@
+{
+  "tours": [
+    {
+      "slug": "shielding-period-2",
+      "name": "Shielding across period 2",
+      "description": "Watch the 2p orbital shrink as effective nuclear charge grows from boron to fluorine."
+    },
+    {
+      "slug": "orbital-shapes",
+      "name": "Orbital shapes: 1s through 3d",
+      "description": "A walking tour through the distinctive geometries of s, p, and d orbitals."
+    }
+  ]
+}

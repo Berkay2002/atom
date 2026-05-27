@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 
 import AtomCanvas from '@/components/AtomCanvas';
 import Controls, { type OrbitalParams } from '@/components/Controls';
+import TourBar from '@/components/TourBar';
 import type { ColormapName } from '@/lib/colormaps';
 import {
   decodeScene,
@@ -21,6 +22,15 @@ import {
   saveStoredState,
   type StoredState,
 } from '@/lib/storage';
+import {
+  clearTourParams,
+  loadTour,
+  readTourParams,
+  TOUR_SLUG_PARAM,
+  TOUR_STEP_PARAM,
+  withTourParams,
+  type Tour,
+} from '@/lib/tours';
 
 // `(n, l, m)` and `colormap` defaults match the desktop's `UiState::default()`
 // — a 3d_(xy)-ish lobe with the fiery INFERNO palette. `autoRotate` and
@@ -49,6 +59,15 @@ export default function Home() {
   );
 }
 
+// In tour mode, the page is driven by `(tour, stepIndex)` instead of the
+// individual scene fields. We still keep the scene state in sync because
+// the canvas reads from those — the tour just *writes* to them on each
+// Prev/Next.
+type TourMode = {
+  tour: Tour;
+  stepIndex: number;
+};
+
 function HomeContent() {
   // SSR-safe init: render defaults on the server so the client's first
   // render matches (avoids hydration warnings), then rehydrate inside a
@@ -66,6 +85,10 @@ function HomeContent() {
   // Decode-error banner. Cleared on dismiss; only ever set once per page
   // load (URL hydration is one-shot).
   const [decodeError, setDecodeError] = useState<string | null>(null);
+  // Active guided tour, or null in free-sandbox mode (issue 07). When set,
+  // the Controls panel is hidden in favour of the TourBar overlay and the
+  // `?s=` URL writer is paused — the tour params own the URL instead.
+  const [tourMode, setTourMode] = useState<TourMode | null>(null);
   // Gate persistence writes on the rehydrate completing — otherwise the
   // first effect would clobber stored state / the URL with SSR defaults.
   const hydratedRef = useRef(false);
@@ -73,41 +96,76 @@ function HomeContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
+  // Apply a tour step's scene string to the page-level scene state. Pure
+  // (no UI side effects), wrapped in useCallback so the effects that call
+  // it stay stable.
+  const applySceneString = useCallback((sceneStr: string): boolean => {
+    try {
+      const decoded = decodeScene(sceneStr);
+      setElementZ(decoded.elementZ);
+      setParams({ n: decoded.n, l: decoded.l, m: decoded.m });
+      setColormap(decoded.colormap);
+      setUseBareZ(decoded.useBareZ);
+      return true;
+    } catch (err) {
+      const message = err instanceof SceneDecodeError ? err.message : String(err);
+      setDecodeError(`Tour step failed to decode: ${message}`);
+      return false;
+    }
+  }, []);
+
   useEffect(() => {
-    // One-shot hydrate. Precedence: URL → localStorage → defaults.
-    // We block URL writes until WASM is ready (`loadCodec`) but allow the
-    // localStorage path to run synchronously so the page paints fast even
-    // when the wasm module is still in flight.
+    // One-shot hydrate. Precedence: tour params → URL scene → localStorage
+    // → defaults. The tour path is async (fetch + parse) so we still
+    // paint localStorage/defaults synchronously underneath so the canvas
+    // isn't blank while the tour JSON downloads.
     let cancelled = false;
 
-    const urlScene = readSceneParam(searchParams.toString());
+    const search = searchParams.toString();
+    const tourParams = readTourParams(search);
+    const urlScene = tourParams ? null : readSceneParam(search);
     const stored = loadStoredState();
 
-    if (urlScene) {
-      // Hydrate from URL once WASM is up. While we wait we still paint
-      // localStorage / defaults so the visualizer isn't blank.
-      /* eslint-disable react-hooks/set-state-in-effect */
-      setElementZ(stored.elementZ);
-      setParams({ n: stored.n, l: stored.l, m: stored.m });
-      setColormap(stored.colormap);
-      setAutoRotate(stored.autoRotate);
-      setHudVisible(stored.hudVisible);
-      setUseBareZ(stored.useBareZ);
-      /* eslint-enable react-hooks/set-state-in-effect */
+    // Always paint stored state first so the canvas has something to show.
+    /* eslint-disable react-hooks/set-state-in-effect */
+    setElementZ(stored.elementZ);
+    setParams({ n: stored.n, l: stored.l, m: stored.m });
+    setColormap(stored.colormap);
+    setAutoRotate(stored.autoRotate);
+    setHudVisible(stored.hudVisible);
+    setUseBareZ(stored.useBareZ);
+    /* eslint-enable react-hooks/set-state-in-effect */
 
+    if (tourParams) {
+      // Deep-link into a tour: fetch the JSON, then enter tour mode at
+      // the requested step (clamped to a valid index). WASM has to be
+      // ready before we can decode the step's scene string.
+      Promise.all([loadCodec(), loadTour(tourParams.slug)])
+        .then(([, tour]) => {
+          if (cancelled) return;
+          const clampedStep = Math.min(Math.max(0, tourParams.step), tour.steps.length - 1);
+          setTourMode({ tour, stepIndex: clampedStep });
+          applySceneString(tour.steps[clampedStep].scene);
+        })
+        .catch((err: unknown) => {
+          if (cancelled) return;
+          const message = err instanceof Error ? err.message : String(err);
+          setDecodeError(`Couldn't load tour: ${message}.`);
+        })
+        .finally(() => {
+          if (!cancelled) hydratedRef.current = true;
+        });
+    } else if (urlScene) {
+      // Hydrate from `?s=...` once WASM is up.
       loadCodec().then(() => {
         if (cancelled) return;
         try {
           const decoded = decodeScene(urlScene);
-          // set-state-in-effect rule doesn't apply here — we're inside a
-          // promise resolution, not directly in the effect body.
           setElementZ(decoded.elementZ);
           setParams({ n: decoded.n, l: decoded.l, m: decoded.m });
           setColormap(decoded.colormap);
           setUseBareZ(decoded.useBareZ);
         } catch (err) {
-          // Malformed URL — defaults already painted, show a banner so
-          // the user knows the link they followed wasn't valid.
           const message = err instanceof SceneDecodeError ? err.message : String(err);
           setDecodeError(`Couldn't load shared view: ${message}. Using defaults.`);
         } finally {
@@ -115,12 +173,6 @@ function HomeContent() {
         }
       });
     } else {
-      setElementZ(stored.elementZ);
-      setParams({ n: stored.n, l: stored.l, m: stored.m });
-      setColormap(stored.colormap);
-      setAutoRotate(stored.autoRotate);
-      setHudVisible(stored.hudVisible);
-      setUseBareZ(stored.useBareZ);
       hydratedRef.current = true;
       // Kick off the codec init proactively so the *next* state change
       // can write the URL without waiting for wasm-bindgen on the
@@ -159,8 +211,13 @@ function HomeContent() {
   // into the address bar via `router.replace` so the back button stays
   // useful. Skipped until hydration completes so we never paint the SSR
   // defaults into the URL.
+  //
+  // While a tour is active the tour params (`?tour=&step=`) are
+  // authoritative — we suppress the `?s=` writer so the two URL formats
+  // don't fight over the address bar on every Prev/Next.
   useEffect(() => {
     if (!hydratedRef.current) return;
+    if (tourMode) return;
     const snapshot: SceneUrlState = {
       elementZ,
       n: params.n,
@@ -192,7 +249,20 @@ function HomeContent() {
       });
     }, URL_DEBOUNCE_MS);
     return () => clearTimeout(timer);
-  }, [elementZ, params.n, params.l, params.m, colormap, useBareZ, router]);
+  }, [elementZ, params.n, params.l, params.m, colormap, useBareZ, router, tourMode]);
+
+  // Tour-mode URL writer — keeps `?tour=&step=` in the address bar
+  // whenever the active step changes. Cheaper than the scene writer (no
+  // WASM encoding), so it runs synchronously on the navigation tick.
+  useEffect(() => {
+    if (!hydratedRef.current) return;
+    if (!tourMode) return;
+    const current = new URLSearchParams(window.location.search);
+    const next = withTourParams(current.toString(), tourMode.tour.slug, tourMode.stepIndex);
+    const nextStr = next.toString();
+    if (current.toString() === nextStr) return; // no-op
+    router.replace(`${window.location.pathname}?${nextStr}`, { scroll: false });
+  }, [tourMode, router]);
 
   // Global `H` shortcut toggles the HUD. Uses the functional setState
   // form so the listener stays correct even though the effect runs once.
@@ -212,6 +282,66 @@ function HomeContent() {
   const toggleHud = useCallback(() => setHudVisible((v) => !v), []);
   const dismissDecodeError = useCallback(() => setDecodeError(null), []);
 
+  // --- Tour mode handlers ---------------------------------------------------
+
+  const handlePickTour = useCallback(
+    (slug: string) => {
+      // Fetch + enter tour mode at step 0. The Promise chain is detached
+      // (we don't await in an event handler) — errors land in the decode
+      // banner instead of an uncaught rejection.
+      loadCodec()
+        .then(() => loadTour(slug))
+        .then((tour) => {
+          setTourMode({ tour, stepIndex: 0 });
+          applySceneString(tour.steps[0].scene);
+        })
+        .catch((err: unknown) => {
+          const message = err instanceof Error ? err.message : String(err);
+          setDecodeError(`Couldn't load tour: ${message}`);
+        });
+    },
+    [applySceneString],
+  );
+
+  const handleTourPrev = useCallback(() => {
+    setTourMode((current) => {
+      if (!current) return current;
+      if (current.stepIndex <= 0) return current;
+      const nextIdx = current.stepIndex - 1;
+      applySceneString(current.tour.steps[nextIdx].scene);
+      return { ...current, stepIndex: nextIdx };
+    });
+  }, [applySceneString]);
+
+  const handleTourNext = useCallback(() => {
+    setTourMode((current) => {
+      if (!current) return current;
+      if (current.stepIndex >= current.tour.steps.length - 1) return current;
+      const nextIdx = current.stepIndex + 1;
+      applySceneString(current.tour.steps[nextIdx].scene);
+      return { ...current, stepIndex: nextIdx };
+    });
+  }, [applySceneString]);
+
+  const handleTourExit = useCallback(() => {
+    // Drop tour params and let the standard `?s=` URL writer take over on
+    // the next tick. We strip the tour params synchronously here so the
+    // address bar update can't lag behind state by one frame.
+    setTourMode(null);
+    const cleared = clearTourParams(window.location.search);
+    // We *don't* set `?s=` here — the regular URL writer effect picks up
+    // immediately (tourMode just flipped false) and writes the encoded
+    // scene on its normal debounce.
+    cleared.delete(TOUR_SLUG_PARAM);
+    cleared.delete(TOUR_STEP_PARAM);
+    const query = cleared.toString();
+    router.replace(`${window.location.pathname}${query ? `?${query}` : ''}`, {
+      scroll: false,
+    });
+  }, [router]);
+
+  const currentStep = tourMode ? tourMode.tour.steps[tourMode.stepIndex] : null;
+
   return (
     <>
       <AtomCanvas
@@ -221,7 +351,7 @@ function HomeContent() {
         autoRotate={autoRotate}
         useBareZ={useBareZ}
       />
-      {hudVisible && (
+      {hudVisible && !tourMode && (
         <Controls
           elementZ={elementZ}
           onElementChange={setElementZ}
@@ -233,6 +363,18 @@ function HomeContent() {
           onAutoRotateChange={setAutoRotate}
           useBareZ={useBareZ}
           onUseBareZChange={setUseBareZ}
+          onPickTour={handlePickTour}
+        />
+      )}
+      {tourMode && currentStep && (
+        <TourBar
+          tourName={tourMode.tour.name}
+          caption={currentStep.caption}
+          stepIndex={tourMode.stepIndex}
+          totalSteps={tourMode.tour.steps.length}
+          onPrev={handleTourPrev}
+          onNext={handleTourNext}
+          onExit={handleTourExit}
         />
       )}
       <EyeToggle visible={hudVisible} onToggle={toggleHud} />

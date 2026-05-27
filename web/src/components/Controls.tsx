@@ -31,6 +31,7 @@ import {
 } from '@/lib/colormaps';
 import { PRESETS, type Preset } from '@/lib/presets';
 import { useSceneCaption } from '@/lib/scene-caption';
+import TourPicker from '@/components/TourPicker';
 
 export type OrbitalParams = {
   n: number;
@@ -60,6 +61,9 @@ export type ControlsProps = {
    *  shielding effect by toggling between the two. */
   useBareZ: boolean;
   onUseBareZChange: (next: boolean) => void;
+  /** Enter guided-tour mode for a given slug. The page handles loading +
+   *  state transition; this prop just plumbs the click through. */
+  onPickTour: (slug: string) => void;
 };
 
 const N_MIN = 1;
@@ -717,6 +721,7 @@ export default function Controls({
   onAutoRotateChange,
   useBareZ,
   onUseBareZChange,
+  onPickTour,
 }: ControlsProps) {
   // Keep pointer events from bubbling into the canvas drag/zoom handlers.
   const stop = (e: PointerEvent<HTMLDivElement>) => {
@@ -789,6 +794,8 @@ export default function Controls({
         value={autoRotate}
         onChange={onAutoRotateChange}
       />
+      <hr style={dividerStyle} />
+      <TourPicker onPickTour={onPickTour} />
     </div>
   );
 }

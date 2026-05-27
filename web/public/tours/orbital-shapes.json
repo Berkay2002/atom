@@ -1,0 +1,34 @@
+{
+  "name": "Orbital shapes: 1s through 3d",
+  "description": "A walking tour through the distinctive geometries of s, p, and d orbitals, all rendered on the same element (argon) so only the quantum numbers change.",
+  "steps": [
+    {
+      "scene": "v1:18/1/0/0/eff/1/1.00",
+      "caption": "1s — the simplest orbital. A single solid sphere of probability density centred on the nucleus, with no nodes anywhere. Every atom's innermost electrons live here."
+    },
+    {
+      "scene": "v1:18/2/0/0/eff/1/1.00",
+      "caption": "2s — still spherical, but now with a radial node. Look for the thin gap separating a dense inner ball from a fluffier outer shell. Same shape family as 1s, one principal-quantum-number step up."
+    },
+    {
+      "scene": "v1:18/2/1/0/eff/1/1.00",
+      "caption": "2p_z — first non-spherical shape. Same n as 2s, but l jumped from 0 to 1, producing the famous dumbbell aligned along the z axis. The plane through the nucleus is an angular node."
+    },
+    {
+      "scene": "v1:18/3/0/0/eff/1/1.00",
+      "caption": "3s — back to a sphere, now with two radial nodes. Nested onion shells of density: count the gaps and you've counted (n − l − 1) radial nodes."
+    },
+    {
+      "scene": "v1:18/3/1/0/eff/1/1.00",
+      "caption": "3p_z — the dumbbell returns, but each lobe is now split by a radial node. Same angular shape as 2p_z, just one extra ring of nodal structure baked in."
+    },
+    {
+      "scene": "v1:18/3/2/0/eff/1/1.00",
+      "caption": "3d_z² — a stranger beast. Two big lobes along z plus a doughnut-shaped ring around the equator. This is what bumping l from 1 to 2 buys you: richer angular structure."
+    },
+    {
+      "scene": "v1:18/3/2/-2/eff/1/1.00",
+      "caption": "3d_xy — the classic cloverleaf. Four lobes hanging between the x and y axes. Same (n, l) as the previous step; only m changed, rotating the angular pattern into a different geometric flavour."
+    }
+  ]
+}
