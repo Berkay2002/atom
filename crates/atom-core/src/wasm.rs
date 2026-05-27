@@ -1,16 +1,17 @@
 //! wasm-bindgen entry point for the volume bake.
 //!
-//! The browser-facing API is intentionally tiny: a single `bake(n, l, m, res)`
-//! function returns a `BakeResult` whose `data` getter exposes the f32 voxel
-//! grid as a `Float32Array` view into wasm linear memory (no copy).
-//!
-//! The view is only valid as long as the underlying Vec lives on the Rust
-//! side and isn't reallocated, so JS should copy out of it (or upload it
-//! to a GPU texture) before dropping the `BakeResult`.
+//! The browser-facing API is intentionally tiny. Slice 1 of the multi-atom
+//! direction ships a Scene-shaped bake on the Rust side but only ever
+//! instantiates a single hydrogen atom at the origin, so the JS↔WASM
+//! signature is still the thin `(n, l, m, res)` tuple — just renamed
+//! `bake_scene` to match the new core API and to mark the protocol as
+//! Scene-shaped on the JS side. Adding multi-atom scenes to JS lands with
+//! issue 02 / 05 (element picker + UI for arbitrary scenes).
 
 use js_sys::Float32Array;
 use wasm_bindgen::prelude::*;
 
+use crate::scene::{Orbital, Scene};
 use crate::volume;
 
 /// Result of a single volume bake, owned on the Rust side.
@@ -54,12 +55,17 @@ impl BakeResult {
     }
 }
 
-/// Bake the volume for orbital (n, l, m) at the given grid resolution.
+/// Bake a Scene of a single hydrogen atom at the origin for orbital
+/// (n, l, m) at the given grid resolution.
 ///
-/// Mirrors `atom_core::volume::bake` but returns a JS-friendly handle.
+/// Mirrors `atom_core::volume::bake_scene` but constructs the Scene on the
+/// Rust side so the JS↔WASM boundary stays a thin parameter tuple. Future
+/// slices will widen this to accept a serialized Scene once the JS UI
+/// supports multi-atom configurations.
 #[wasm_bindgen]
-pub fn bake(n: u32, l: u32, m: i32, res: usize) -> BakeResult {
-    let v = volume::bake(n, l, m, res);
+pub fn bake_scene(n: u32, l: u32, m: i32, res: u32) -> BakeResult {
+    let scene = Scene::single_hydrogen(Orbital { n, l, m });
+    let v = volume::bake_scene(&scene, res);
     BakeResult {
         data: v.data,
         half_extent: v.half_extent as f32,

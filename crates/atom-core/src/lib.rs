@@ -6,7 +6,10 @@
 //! cdylib for the WebAssembly web demo.
 
 pub mod physics;
+pub mod scene;
 pub mod volume;
+
+pub use scene::{Atom, CameraState, ColormapId, ElementId, Orbital, Scene, View};
 
 #[cfg(feature = "wasm")]
 pub mod wasm;

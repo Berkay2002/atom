@@ -11,11 +11,11 @@ use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::window::{Window, WindowId};
 
+use atom_core::scene::{Orbital, Scene};
 use atom_core::volume;
 use camera::Camera;
 use render::Renderer;
 use ui::UiState;
-use volume::bake;
 
 struct GpuState {
     surface: wgpu::Surface<'static>,
@@ -84,7 +84,10 @@ impl GpuState {
             desired_maximum_frame_latency: 2,
         };
         surface.configure(&device, &config);
-        let initial = bake(3, 2, 1, 256);
+        let initial = volume::bake_scene(
+            &Scene::single_hydrogen(Orbital { n: 3, l: 2, m: 1 }),
+            256,
+        );
         let last_peak = initial.peak;
         let renderer = {
             let mut r = Renderer::new(&device, &queue, config.format, &initial);
@@ -169,7 +172,12 @@ impl GpuState {
             rebake_requested = rebake_from_panel || rebake_from_hud;
         });
         if rebake_requested {
-            let v = volume::bake(self.ui.n, self.ui.l, self.ui.m, self.ui.resolution);
+            let scene = Scene::single_hydrogen(Orbital {
+                n: self.ui.n,
+                l: self.ui.l,
+                m: self.ui.m,
+            });
+            let v = volume::bake_scene(&scene, self.ui.resolution as u32);
             self.last_peak = v.peak;
             self.renderer.replace_volume(&self.device, &self.queue, &v);
             self.current_n = self.ui.n;

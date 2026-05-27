@@ -7,22 +7,30 @@
 // Protocol (single-shot per worker — cancellation = terminate + respawn,
 // orchestrated by `BakeClient`):
 //
-//   main -> worker:  { type: 'requestBake', n, l, m, res }
+//   main -> worker:  { type: 'requestBake', scene: { orbital: { n, l, m } }, res }
 //   worker -> main:  { type: 'bake-result', data: Float32Array,
 //                      halfExtent: number, peak: number }
+//
+// Slice 1 of the multi-atom direction reshapes the Rust core around a
+// `Scene` of `Atom`s, but only ever uses a single hydrogen atom at the
+// origin. The JS↔WASM boundary stays thin (no JSON serde) — we mirror
+// the Scene shape only in the message envelope so future slices can grow
+// it without another protocol rename.
 //
 // The `data` Float32Array returned by atom-core's BakeResult is a *view*
 // into wasm linear memory; sending it directly would alias memory that
 // can move on the next allocation. We copy into a fresh ArrayBuffer and
 // transfer ownership across the postMessage boundary.
 
-import init, { bake } from '../../wasm/atom_core.js';
+import init, { bake_scene } from '../../wasm/atom_core.js';
+
+export type SceneRequest = {
+  orbital: { n: number; l: number; m: number };
+};
 
 export type BakeRequest = {
   type: 'requestBake';
-  n: number;
-  l: number;
-  m: number;
+  scene: SceneRequest;
   res: number;
 };
 
@@ -47,7 +55,8 @@ ctx.addEventListener('message', async (ev: MessageEvent<BakeRequest>) => {
   if (!req || req.type !== 'requestBake') return;
   await ensureReady();
 
-  const result = bake(req.n, req.l, req.m, req.res);
+  const { n, l, m } = req.scene.orbital;
+  const result = bake_scene(n, l, m, req.res);
 
   // Copy the wasm-memory view into an owned Float32Array before posting,
   // then free the Rust-side BakeResult.

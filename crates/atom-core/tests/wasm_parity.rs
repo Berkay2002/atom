@@ -1,9 +1,10 @@
 //! Parity smoke test for the wasm bindgen layer.
 //!
-//! Bakes (n=2, l=1, m=0, res=32) two ways on the wasm32 target:
-//!   1. Direct call to `atom_core::volume::bake`.
-//!   2. Through the `#[wasm_bindgen]` `atom_core::wasm::bake` entry point,
-//!      reading back the Float32Array view.
+//! Bakes a single-hydrogen scene (n=2, l=1, m=0, res=32) two ways on the
+//! wasm32 target:
+//!   1. Direct call to `atom_core::volume::bake_scene`.
+//!   2. Through the `#[wasm_bindgen]` `atom_core::wasm::bake_scene` entry
+//!      point, reading back the Float32Array view.
 //!
 //! Asserts the two slices are equal element-wise within 1e-6. This proves
 //! the bindgen layer (Float32Array view, BakeResult getters) doesn't
@@ -20,14 +21,16 @@ use wasm_bindgen_test::*;
 
 #[wasm_bindgen_test]
 fn wasm_bake_matches_native_bake_elementwise() {
-    let (n, l, m, res) = (2u32, 1u32, 0i32, 32usize);
+    let (n, l, m, res) = (2u32, 1u32, 0i32, 32u32);
 
-    let native = atom_core::volume::bake(n, l, m, res);
-    let wasm = atom_core::wasm::bake(n, l, m, res);
+    let scene = atom_core::scene::Scene::single_hydrogen(atom_core::scene::Orbital { n, l, m });
+    let native = atom_core::volume::bake_scene(&scene, res);
+    let wasm = atom_core::wasm::bake_scene(n, l, m, res);
 
     // Pull the Float32Array view across the JS boundary into a Rust Vec.
     let view = wasm.data();
     let len = view.length() as usize;
+    let res = res as usize;
     assert_eq!(len, res * res * res, "data length mismatch");
     assert_eq!(len, native.data.len(), "native length mismatch");
 

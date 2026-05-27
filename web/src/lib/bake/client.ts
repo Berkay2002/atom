@@ -99,7 +99,11 @@ export class BakeClient implements IBakeClient {
         if (p) p.reject(ev);
       });
 
-      const req: BakeRequest = { type: 'requestBake', ...params };
+      const req: BakeRequest = {
+        type: 'requestBake',
+        scene: { orbital: { n: params.n, l: params.l, m: params.m } },
+        res: params.res,
+      };
       worker.postMessage(req);
     });
   }
