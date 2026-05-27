@@ -1,18 +1,19 @@
 'use client';
 
-// Glue between the bake worker, the WebGL2 renderer, and the DOM canvas.
+// Glue between the bake worker, the WebGL2 renderer, the orbit camera,
+// and the DOM canvas.
 //
-// Slice 03 is intentionally minimal:
 //   * spawn the bake worker once on mount
 //   * request a single bake(1, 0, 0, 96)
-//   * upload the volume, build one fixed camera view, and run a clean
-//     requestAnimationFrame loop
-//
-// No state, no controls. Resizing the window is the only dynamic input.
+//   * once the volume arrives, call camera.fit(halfExtent)
+//   * each rAF tick: rebuild the view-projection and feed the renderer
+//   * pointer / wheel / touch are routed to the camera
 
 import { useEffect, useRef } from 'react';
+import { mat4 } from 'gl-matrix';
 
-import { fixedView } from '@/lib/camera';
+import { OrbitCamera } from '@/lib/camera/orbit-camera';
+import { attachPointerInput } from '@/lib/camera/pointer-input';
 import { Raymarcher } from '@/lib/renderer/raymarch';
 
 const N = 1;
@@ -42,8 +43,11 @@ export default function AtomCanvas() {
     const renderer = new Raymarcher(canvas);
     renderer.setParams(RAYMARCH_PARAMS);
 
-    let halfExtent = 1;
-    let needsCameraUpdate = true;
+    // Aspect is updated on the first sizeToWindow call below, so the
+    // initial 1.0 is just a placeholder. Radius is meaningless until the
+    // first bake fires camera.fit(halfExtent).
+    const camera = new OrbitCamera(2.0, 1.0);
+
     let rafId = 0;
     let disposed = false;
 
@@ -52,10 +56,12 @@ export default function AtomCanvas() {
       const w = Math.floor(canvas.clientWidth * dpr);
       const h = Math.floor(canvas.clientHeight * dpr);
       renderer.resize(w, h);
-      needsCameraUpdate = true;
+      camera.aspect = Math.max(1, w) / Math.max(1, h);
     };
     sizeToWindow();
     window.addEventListener('resize', sizeToWindow);
+
+    const detachInput = attachPointerInput(canvas, camera);
 
     // The worker URL pattern is how Next.js (webpack + turbopack) picks
     // up a TS file as a Web Worker entry and bundles it as its own chunk.
@@ -63,25 +69,27 @@ export default function AtomCanvas() {
       type: 'module',
     });
 
+    // Reused per-frame to avoid allocating a fresh Float32Array every tick.
+    const invVP = mat4.create();
+
     worker.addEventListener('message', (ev: MessageEvent<WorkerMsg>) => {
       const msg = ev.data;
       if (msg.type === 'ready') {
         worker.postMessage({ type: 'bake', n: N, l: L, m: M, res: RES });
       } else if (msg.type === 'bake-result') {
         renderer.setVolume({ data: msg.data, res: RES, halfExtent: msg.halfExtent });
-        halfExtent = msg.halfExtent;
-        needsCameraUpdate = true;
+        camera.fit(msg.halfExtent);
       }
     });
 
     const tick = () => {
       if (disposed) return;
-      if (needsCameraUpdate) {
-        const aspect = Math.max(1, canvas.width) / Math.max(1, canvas.height);
-        const cam = fixedView(halfExtent, aspect);
-        renderer.setCamera(cam);
-        needsCameraUpdate = false;
-      }
+      const vp = camera.viewProj();
+      mat4.invert(invVP, vp);
+      renderer.setCamera({
+        position: camera.position(),
+        invViewProj: invVP as Float32Array,
+      });
       renderer.draw();
       rafId = requestAnimationFrame(tick);
     };
@@ -91,6 +99,7 @@ export default function AtomCanvas() {
       disposed = true;
       cancelAnimationFrame(rafId);
       window.removeEventListener('resize', sizeToWindow);
+      detachInput();
       worker.terminate();
       renderer.dispose();
     };
