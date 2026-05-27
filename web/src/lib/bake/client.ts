@@ -106,8 +106,10 @@ export class BakeClient implements IBakeClient {
       const req: BakeRequest = {
         type: 'requestBake',
         scene: {
-          elementZ: params.elementZ,
-          orbital: { n: params.n, l: params.l, m: params.m },
+          atom: {
+            elementZ: params.elementZ,
+            orbital: { n: params.n, l: params.l, m: params.m },
+          },
           view: { useBareZ: params.useBareZ },
         },
         res: params.res,

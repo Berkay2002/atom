@@ -357,7 +357,7 @@ pub fn homo(element: ElementId) -> Option<Orbital> {
 // to `ElementData` so the orbital-label table and per-orbital descriptions
 // don't drift across the web/desktop boundary — both targets call into
 // the same function via either a direct `pub use` (desktop) or the
-// `scene_caption` wasm-bindgen export (web).
+// `scene_caption_projection` wasm-bindgen export (web).
 //
 // Slice-1 only handles the single-atom case (the only shape a `Scene`
 // can take today). Multi-atom captions are a follow-up — the function

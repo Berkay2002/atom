@@ -162,7 +162,10 @@ mod tests {
             // Bare-hydrogen z_eff=1.0 — what the pre-Slater bake assumed.
             crate::physics::psi_squared(n, l, m, 1.0, x, y, z)
         };
+        #[cfg(not(target_arch = "wasm32"))]
         let raw: Vec<f64> = (0..total).into_par_iter().map(sample).collect();
+        #[cfg(target_arch = "wasm32")]
+        let raw: Vec<f64> = (0..total).map(sample).collect();
         let peak = raw.iter().copied().fold(0.0_f64, f64::max);
         let inv = if peak > 0.0 { 1.0 / peak } else { 0.0 };
         let data: Vec<f32> = raw.iter().map(|&v| (v * inv) as f32).collect();

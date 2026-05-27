@@ -8,28 +8,30 @@
 // orchestrated by `BakeClient`):
 //
 //   main -> worker:  { type: 'requestBake',
-//                      scene: { elementZ, orbital: { n, l, m },
+//                      scene: { atom: { elementZ, orbital: { n, l, m } },
 //                               view: { useBareZ } }, res }
 //   worker -> main:  { type: 'bake-result', data: Float32Array,
 //                      halfExtent: number, peak: number }
 //
-// Issue 02 of the multi-atom direction carries the element atomic number
-// and the bare-Z toggle across the boundary. The JS↔WASM boundary is
-// still a thin parameter tuple (no JSON serde) — we mirror the Scene
-// shape only in the message envelope so future multi-atom slices can
-// grow it without another protocol rename.
+// The JS worker protocol mirrors the single-atom Scene/Atom/Orbital/View
+// language. The WASM boundary receives the codec's browser projection
+// shape plus an explicit bake resolution, so Scene facts have one seam
+// shape while res remains a render-quality parameter.
 //
 // The `data` Float32Array returned by atom-core's BakeResult is a *view*
 // into wasm linear memory; sending it directly would alias memory that
 // can move on the next allocation. We copy into a fresh ArrayBuffer and
 // transfer ownership across the postMessage boundary.
 
-import init, { bake_scene } from '../../wasm/atom_core.js';
+import init, { bake_scene_projection } from '../../wasm/atom_core.js';
+import type { BrowserSceneProjection } from '@/lib/scene-url';
 
 export type SceneRequest = {
-  /** Atomic number of the selected element (1..=18). */
-  elementZ: number;
-  orbital: { n: number; l: number; m: number };
+  atom: {
+    /** Atomic number of the selected element (1..=18). */
+    elementZ: number;
+    orbital: { n: number; l: number; m: number };
+  };
   /** View flags. `useBareZ` overrides Slater shielding with the bare atomic number. */
   view: { useBareZ: boolean };
 };
@@ -61,10 +63,19 @@ ctx.addEventListener('message', async (ev: MessageEvent<BakeRequest>) => {
   if (!req || req.type !== 'requestBake') return;
   await ensureReady();
 
-  const { n, l, m } = req.scene.orbital;
-  const { elementZ } = req.scene;
+  const { n, l, m } = req.scene.atom.orbital;
+  const { elementZ } = req.scene.atom;
   const { useBareZ } = req.scene.view;
-  const result = bake_scene(elementZ, n, l, m, useBareZ, req.res);
+  const projection: BrowserSceneProjection = {
+    elementZ,
+    n,
+    l,
+    m,
+    useBareZ,
+    colormapId: 0,
+    exposure: 1,
+  };
+  const result = bake_scene_projection(projection, req.res);
 
   // Copy the wasm-memory view into an owned Float32Array before posting,
   // then free the Rust-side BakeResult.

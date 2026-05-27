@@ -32,6 +32,7 @@ import {
 import { ELEMENT_PRESENTATIONS } from '@/lib/element-presentation';
 import { PRESETS, type Preset } from '@/lib/presets';
 import { useSceneCaption } from '@/lib/scene-caption';
+import { colormapNameToId } from '@/lib/scene-url';
 import TourPicker from '@/components/TourPicker';
 
 export type OrbitalParams = {
@@ -643,6 +644,8 @@ function PresetStrip({ value, onPick }: PresetStripProps) {
 type SceneCaptionProps = {
   elementZ: number;
   value: OrbitalParams;
+  colormap: ColormapName;
+  useBareZ: boolean;
 };
 
 // Plain-language caption slot (issue 06). Sits between the periodic
@@ -651,12 +654,15 @@ type SceneCaptionProps = {
 // `atom-core::caption` and surfaced via `useSceneCaption`; until the
 // WASM module is ready the slot renders empty (the parent reserves
 // vertical space via `minHeight` so the layout doesn't reflow).
-function SceneCaption({ elementZ, value }: SceneCaptionProps) {
+function SceneCaption({ elementZ, value, colormap, useBareZ }: SceneCaptionProps) {
   const caption = useSceneCaption({
     elementZ,
     n: value.n,
     l: value.l,
     m: value.m,
+    useBareZ,
+    colormapId: colormapNameToId(colormap),
+    exposure: 1,
   });
   return (
     <p style={captionStyle} aria-live="polite">
@@ -700,7 +706,12 @@ export default function Controls({
       onWheel={(e) => e.stopPropagation()}
     >
       <ElementPicker value={elementZ} onPick={onElementChange} />
-      <SceneCaption elementZ={elementZ} value={value} />
+      <SceneCaption
+        elementZ={elementZ}
+        value={value}
+        colormap={colormap}
+        useBareZ={useBareZ}
+      />
       <ToggleRow
         label={useBareZ ? 'bare Z' : 'effective Z'}
         labelTooltip={LABEL_TOOLTIPS.bareZ}

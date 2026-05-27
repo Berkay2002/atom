@@ -1,12 +1,11 @@
 //! wasm-bindgen entry point for the volume bake.
 //!
-//! The browser-facing API is intentionally tiny. The single-atom shape
-//! still flows as a thin parameter tuple — `(element_z, n, l, m,
-//! use_bare_z, res)` — because the JS UI only configures one atom today.
-//! Multi-atom scenes will widen this once issue 05 (richer scene UI)
-//! lands.
+//! The browser-facing API is intentionally tiny. Scene-shaped operations
+//! cross the JS/WASM boundary through the same single-atom projection
+//! object, with bake resolution passed separately because it is a render
+//! quality choice rather than part of the Scene.
 
-use js_sys::Float32Array;
+use js_sys::{Float32Array, Object, Reflect};
 use wasm_bindgen::prelude::*;
 
 use crate::element;
@@ -54,34 +53,8 @@ impl BakeResult {
     }
 }
 
-/// Bake a Scene containing a single atom of `element_z` at the origin for
-/// orbital `(n, l, m)` at the given grid resolution.
-///
-/// `element_z` is the atomic number (1..=18 for H–Ar; out-of-range values
-/// fall back to bare hydrogen inside Slater's-rules resolution).
-///
-/// When `use_bare_z` is `true`, the bake uses the element's bare atomic
-/// number directly instead of the Slater-shielded effective charge. The
-/// UI toggle for this lands in issue 03; the plumbing exists now so the
-/// `View` is faithfully threaded across the JS↔WASM boundary.
-#[wasm_bindgen]
-pub fn bake_scene(
-    element_z: u32,
-    n: u32,
-    l: u32,
-    m: i32,
-    use_bare_z: bool,
-    res: u32,
-) -> BakeResult {
-    let scene = Scene {
-        atoms: vec![Atom {
-            element: ElementId(element_z),
-            position: [0.0, 0.0, 0.0],
-            orbital: Orbital { n, l, m },
-        }],
-        view: View { use_bare_z, ..View::default() },
-    };
-    let v = volume::bake_scene(&scene, res as usize);
+fn bake_result(scene: &Scene, res: u32) -> BakeResult {
+    let v = volume::bake_scene(scene, res as usize);
     BakeResult {
         data: v.data,
         half_extent: v.half_extent as f32,
@@ -96,90 +69,170 @@ pub fn bake_scene(
 // JS-friendly projection of a `Scene` for the slice-1 wire format. We
 // deliberately don't expose the full `Scene` across the FFI boundary —
 // it'd require leaking `Vec<Atom>` machinery into wasm-bindgen. Instead,
-// the JS side hands us flat primitives, and we hand back a plain struct
-// with getters for each field the URL actually carries. This keeps the
-// FFI surface aligned with the wire format and makes drift impossible.
+// the JS side hands us one narrow object with the fields the URL carries,
+// and decode returns that same object shape.
 
-/// Decoded URL state, mirroring the wire-format field set 1:1. Position
-/// is implicit (slice-1 scenes are single-atom at the origin), camera
-/// state is excluded by design — see scene.rs module docs.
-#[wasm_bindgen]
-pub struct DecodedScene {
-    element_z: u32,
-    n: u32,
-    l: u32,
-    m: i32,
-    use_bare_z: bool,
-    colormap_id: u32,
-    exposure: f32,
+const ELEMENT_Z: &str = "elementZ";
+const N: &str = "n";
+const L: &str = "l";
+const M: &str = "m";
+const USE_BARE_Z: &str = "useBareZ";
+const COLORMAP_ID: &str = "colormapId";
+const EXPOSURE: &str = "exposure";
+
+fn projection_field(projection: &JsValue, field: &str) -> Result<JsValue, JsError> {
+    Reflect::get(projection, &JsValue::from_str(field)).map_err(|_| {
+        JsError::new(&format!(
+            "invalid browser scene projection: missing field '{field}'"
+        ))
+    })
 }
 
-#[wasm_bindgen]
-impl DecodedScene {
-    #[wasm_bindgen(getter)]
-    pub fn element_z(&self) -> u32 { self.element_z }
-    #[wasm_bindgen(getter)]
-    pub fn n(&self) -> u32 { self.n }
-    #[wasm_bindgen(getter)]
-    pub fn l(&self) -> u32 { self.l }
-    #[wasm_bindgen(getter)]
-    pub fn m(&self) -> i32 { self.m }
-    #[wasm_bindgen(getter)]
-    pub fn use_bare_z(&self) -> bool { self.use_bare_z }
-    #[wasm_bindgen(getter)]
-    pub fn colormap_id(&self) -> u32 { self.colormap_id }
-    #[wasm_bindgen(getter)]
-    pub fn exposure(&self) -> f32 { self.exposure }
+fn projection_u32(projection: &JsValue, field: &str) -> Result<u32, JsError> {
+    let value = projection_field(projection, field)?;
+    let Some(number) = value.as_f64() else {
+        return Err(JsError::new(&format!(
+            "invalid browser scene projection: field '{field}' must be a number"
+        )));
+    };
+    if !number.is_finite() || number.fract() != 0.0 || number < 0.0 || number > u32::MAX as f64 {
+        return Err(JsError::new(&format!(
+            "invalid browser scene projection: field '{field}' must be a finite unsigned integer"
+        )));
+    }
+    Ok(number as u32)
 }
 
-/// Encode the slice-1 single-atom view to a `v1:` URL string. Always
-/// succeeds — the input shape (flat primitives) can't represent a
-/// multi-atom or empty scene, so the `EncodeError` variants are
-/// unreachable here.
-#[wasm_bindgen]
-pub fn scene_encode(
-    element_z: u32,
-    n: u32,
-    l: u32,
-    m: i32,
-    use_bare_z: bool,
-    colormap_id: u32,
-    exposure: f32,
-) -> String {
-    let scene = Scene {
+fn projection_i32(projection: &JsValue, field: &str) -> Result<i32, JsError> {
+    let value = projection_field(projection, field)?;
+    let Some(number) = value.as_f64() else {
+        return Err(JsError::new(&format!(
+            "invalid browser scene projection: field '{field}' must be a number"
+        )));
+    };
+    if !number.is_finite()
+        || number.fract() != 0.0
+        || number < i32::MIN as f64
+        || number > i32::MAX as f64
+    {
+        return Err(JsError::new(&format!(
+            "invalid browser scene projection: field '{field}' must be a finite signed integer"
+        )));
+    }
+    Ok(number as i32)
+}
+
+fn projection_f32(projection: &JsValue, field: &str) -> Result<f32, JsError> {
+    let value = projection_field(projection, field)?;
+    let Some(number) = value.as_f64() else {
+        return Err(JsError::new(&format!(
+            "invalid browser scene projection: field '{field}' must be a number"
+        )));
+    };
+    if !number.is_finite() {
+        return Err(JsError::new(&format!(
+            "invalid browser scene projection: field '{field}' must be finite"
+        )));
+    }
+    Ok(number as f32)
+}
+
+fn projection_bool(projection: &JsValue, field: &str) -> Result<bool, JsError> {
+    let value = projection_field(projection, field)?;
+    value.as_bool().ok_or_else(|| {
+        JsError::new(&format!(
+            "invalid browser scene projection: field '{field}' must be a boolean"
+        ))
+    })
+}
+
+fn scene_from_projection(projection: &JsValue) -> Result<Scene, JsError> {
+    Ok(Scene {
         atoms: vec![Atom {
-            element: ElementId(element_z),
+            element: ElementId(projection_u32(projection, ELEMENT_Z)?),
             position: [0.0, 0.0, 0.0],
-            orbital: Orbital { n, l, m },
+            orbital: Orbital {
+                n: projection_u32(projection, N)?,
+                l: projection_u32(projection, L)?,
+                m: projection_i32(projection, M)?,
+            },
         }],
         view: View {
-            use_bare_z,
+            use_bare_z: projection_bool(projection, USE_BARE_Z)?,
             camera: crate::scene::CameraState::default(),
-            colormap: crate::scene::ColormapId(colormap_id),
-            exposure,
+            colormap: crate::scene::ColormapId(projection_u32(projection, COLORMAP_ID)?),
+            exposure: projection_f32(projection, EXPOSURE)?,
         },
-    };
-    // unwrap: single non-empty atom — neither EncodeError variant can fire.
-    scene::encode(&scene).expect("single-atom scene always encodes")
+    })
 }
 
-/// Compose the user-facing caption (issue 06) for the slice-1 single-atom
-/// view. Mirrors `scene_encode`'s flat-primitive parameter shape so the
-/// JS side never has to construct a `Scene` across the FFI boundary.
+fn set_projection_field(object: &Object, field: &str, value: JsValue) {
+    Reflect::set(object, &JsValue::from_str(field), &value)
+        .expect("setting a plain object property should succeed");
+}
+
+fn projection_from_scene(scene: &Scene) -> JsValue {
+    let atom = &scene.atoms[0];
+    let object = Object::new();
+    set_projection_field(&object, ELEMENT_Z, JsValue::from_f64(atom.element.0 as f64));
+    set_projection_field(&object, N, JsValue::from_f64(atom.orbital.n as f64));
+    set_projection_field(&object, L, JsValue::from_f64(atom.orbital.l as f64));
+    set_projection_field(&object, M, JsValue::from_f64(atom.orbital.m as f64));
+    set_projection_field(
+        &object,
+        USE_BARE_Z,
+        JsValue::from_bool(scene.view.use_bare_z),
+    );
+    set_projection_field(
+        &object,
+        COLORMAP_ID,
+        JsValue::from_f64(scene.view.colormap.0 as f64),
+    );
+    set_projection_field(
+        &object,
+        EXPOSURE,
+        JsValue::from_f64(scene.view.exposure as f64),
+    );
+    object.into()
+}
+
+/// Encode the slice-1 single-atom browser projection to a `v1:` URL string.
+#[wasm_bindgen]
+pub fn scene_encode_projection(projection: JsValue) -> Result<String, JsError> {
+    let scene = scene_from_projection(&projection)?;
+    scene::encode(&scene).map_err(|e| JsError::new(&format!("{}", e)))
+}
+
+/// Decode a `v1:` URL string into the browser projection object shape.
+#[wasm_bindgen]
+pub fn scene_decode_projection(s: &str) -> Result<JsValue, JsError> {
+    let scene = scene::decode(s).map_err(|e| JsError::new(&format!("{}", e)))?;
+    Ok(projection_from_scene(&scene))
+}
+
+/// Bake the slice-1 single-atom browser projection at the given grid
+/// resolution.
+///
+/// `projection` uses the same object shape as `scene_encode_projection` and
+/// `scene_decode_projection`: element, orbital, and view fields are Scene
+/// facts, while `res` stays an explicit bake quality parameter. The returned
+/// data view has the same ownership contract as `BakeResult::data`: JS must
+/// copy or upload it before freeing this result.
+#[wasm_bindgen]
+pub fn bake_scene_projection(projection: JsValue, res: u32) -> Result<BakeResult, JsError> {
+    let scene = scene_from_projection(&projection)?;
+    Ok(bake_result(&scene, res))
+}
+
+/// Compose the user-facing caption for the slice-1 single-atom browser
+/// projection.
 ///
 /// The returned string is the same line `atom_core::caption(&scene)`
 /// produces for the equivalent single-atom `Scene`.
 #[wasm_bindgen]
-pub fn scene_caption(element_z: u32, n: u32, l: u32, m: i32) -> String {
-    let scene = Scene {
-        atoms: vec![Atom {
-            element: ElementId(element_z),
-            position: [0.0, 0.0, 0.0],
-            orbital: Orbital { n, l, m },
-        }],
-        view: View::default(),
-    };
-    crate::element::caption(&scene)
+pub fn scene_caption_projection(projection: JsValue) -> Result<String, JsError> {
+    let scene = scene_from_projection(&projection)?;
+    Ok(crate::element::caption(&scene))
 }
 
 /// JS-friendly projection of `atom_core::element_presentation`.
@@ -203,23 +256,41 @@ pub struct ElementPresentationJs {
 #[wasm_bindgen]
 impl ElementPresentationJs {
     #[wasm_bindgen(getter)]
-    pub fn atomic_number(&self) -> u32 { self.atomic_number }
+    pub fn atomic_number(&self) -> u32 {
+        self.atomic_number
+    }
     #[wasm_bindgen(getter)]
-    pub fn symbol(&self) -> String { self.symbol.to_string() }
+    pub fn symbol(&self) -> String {
+        self.symbol.to_string()
+    }
     #[wasm_bindgen(getter)]
-    pub fn display_name(&self) -> String { self.display_name.to_string() }
+    pub fn display_name(&self) -> String {
+        self.display_name.to_string()
+    }
     #[wasm_bindgen(getter)]
-    pub fn config_text(&self) -> String { self.config_text.to_string() }
+    pub fn config_text(&self) -> String {
+        self.config_text.to_string()
+    }
     #[wasm_bindgen(getter)]
-    pub fn homo_n(&self) -> u32 { self.homo_n }
+    pub fn homo_n(&self) -> u32 {
+        self.homo_n
+    }
     #[wasm_bindgen(getter)]
-    pub fn homo_l(&self) -> u32 { self.homo_l }
+    pub fn homo_l(&self) -> u32 {
+        self.homo_l
+    }
     #[wasm_bindgen(getter)]
-    pub fn homo_m(&self) -> i32 { self.homo_m }
+    pub fn homo_m(&self) -> i32 {
+        self.homo_m
+    }
     #[wasm_bindgen(getter)]
-    pub fn slot_period(&self) -> u8 { self.slot_period }
+    pub fn slot_period(&self) -> u8 {
+        self.slot_period
+    }
     #[wasm_bindgen(getter)]
-    pub fn slot_group(&self) -> u8 { self.slot_group }
+    pub fn slot_group(&self) -> u8 {
+        self.slot_group
+    }
 }
 
 /// Look up the shared element presentation for `element_z`.
@@ -239,24 +310,5 @@ pub fn element_presentation(element_z: u32) -> Option<ElementPresentationJs> {
         homo_m: native.homo.m,
         slot_period: native.slot.period,
         slot_group: native.slot.group,
-    })
-}
-
-/// Decode a `v1:` URL string into a `DecodedScene`. Errors are surfaced
-/// as `JsError` so JS-side `catch` clauses see a real `Error` with the
-/// `DecodeError::Display` message, ready to drop into a banner.
-#[wasm_bindgen]
-pub fn scene_decode(s: &str) -> Result<DecodedScene, JsError> {
-    let scene = scene::decode(s).map_err(|e| JsError::new(&format!("{}", e)))?;
-    // decode is contractually single-atom at the origin — see scene.rs.
-    let atom = &scene.atoms[0];
-    Ok(DecodedScene {
-        element_z: atom.element.0,
-        n: atom.orbital.n,
-        l: atom.orbital.l,
-        m: atom.orbital.m,
-        use_bare_z: scene.view.use_bare_z,
-        colormap_id: scene.view.colormap.0,
-        exposure: scene.view.exposure,
     })
 }

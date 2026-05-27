@@ -1,8 +1,8 @@
 // URL state codec — single source of truth for the `?s=...` query param.
 //
 // All the actual encoding / decoding lives in `atom-core::scene` (Rust)
-// and is exposed via WASM as `scene_encode` / `scene_decode`. This module
-// is a thin TypeScript adapter:
+// and is exposed via WASM as projection-shaped encode/decode exports. This
+// module is a thin TypeScript adapter:
 //
 //   * `loadCodec()` — lazy-initialises the WASM module on the main thread
 //     (the bake worker initialises its own copy in parallel; the cost is a
@@ -18,9 +18,8 @@
 // through these helpers — no other module should touch the URL directly.
 
 import init, {
-  scene_decode,
-  scene_encode,
-  type DecodedScene,
+  scene_decode_projection,
+  scene_encode_projection,
 } from '../../wasm/atom_core.js';
 
 import type { ColormapName } from '@/lib/colormaps';
@@ -43,6 +42,16 @@ export type SceneUrlState = {
   exposure: number;
 };
 
+export type BrowserSceneProjection = {
+  elementZ: number;
+  n: number;
+  l: number;
+  m: number;
+  useBareZ: boolean;
+  colormapId: number;
+  exposure: number;
+};
+
 /** Decode-time failure — typed so the UI can show the message verbatim. */
 export class SceneDecodeError extends Error {
   constructor(message: string) {
@@ -58,7 +67,7 @@ let codecReady: Promise<void> | null = null;
 
 /**
  * Initialise the WASM codec. Idempotent — repeated calls return the same
- * pending promise. Resolves once `scene_encode` / `scene_decode` are
+ * pending promise. Resolves once the projection codec exports are
  * callable.
  */
 export function loadCodec(): Promise<void> {
@@ -79,15 +88,15 @@ export function encodeScene(state: SceneUrlState): string {
   // string name in React state but flatten to a numeric id on the wire so
   // adding a colormap in the future is a no-op for old URLs.
   const colormapId = colormapNameToId(state.colormap);
-  return scene_encode(
-    state.elementZ,
-    state.n,
-    state.l,
-    state.m,
-    state.useBareZ,
+  return scene_encode_projection({
+    elementZ: state.elementZ,
+    n: state.n,
+    l: state.l,
+    m: state.m,
+    useBareZ: state.useBareZ,
     colormapId,
-    state.exposure,
-  );
+    exposure: state.exposure,
+  } satisfies BrowserSceneProjection);
 }
 
 /**
@@ -96,9 +105,9 @@ export function encodeScene(state: SceneUrlState): string {
  * this and shows a non-blocking banner.
  */
 export function decodeScene(s: string): SceneUrlState {
-  let decoded: DecodedScene;
+  let decoded: BrowserSceneProjection;
   try {
-    decoded = scene_decode(s);
+    decoded = scene_decode_projection(s) as BrowserSceneProjection;
   } catch (err) {
     // wasm-bindgen turns Rust's `JsError` into a regular `Error` whose
     // message is the `DecodeError::Display` output we picked in
@@ -107,17 +116,14 @@ export function decodeScene(s: string): SceneUrlState {
     throw new SceneDecodeError(message);
   }
   const result: SceneUrlState = {
-    elementZ: decoded.element_z,
+    elementZ: decoded.elementZ,
     n: decoded.n,
     l: decoded.l,
     m: decoded.m,
-    useBareZ: decoded.use_bare_z,
-    colormap: colormapIdToName(decoded.colormap_id),
+    useBareZ: decoded.useBareZ,
+    colormap: colormapIdToName(decoded.colormapId),
     exposure: decoded.exposure,
   };
-  // The `DecodedScene` holds a pointer into wasm memory; release it now
-  // that we've copied the primitives out.
-  decoded.free();
   return result;
 }
 
@@ -148,7 +154,7 @@ export function withSceneParam(currentSearch: string | null | undefined, encoded
   return params.toString();
 }
 
-function colormapNameToId(name: ColormapName): number {
+export function colormapNameToId(name: ColormapName): number {
   // Canonical mapping = position in COLORMAP_ORDER. INFERNO=0, …, ELECTRON_BLUE=5.
   const id = COLORMAP_ORDER.indexOf(name);
   // `name: ColormapName` makes this provably unreachable, but a fallback
