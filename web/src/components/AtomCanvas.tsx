@@ -1,40 +1,62 @@
 'use client';
 
-// Glue between the bake worker, the WebGL2 renderer, the orbit camera,
-// and the DOM canvas.
+// Glue between the bake pipeline (BakeClient + useDebouncedBake), the
+// WebGL2 renderer, the orbit camera, and the DOM canvas.
 //
-//   * spawn the bake worker once on mount
-//   * request a single bake(1, 0, 0, 96)
-//   * once the volume arrives, call camera.fit(halfExtent)
-//   * each rAF tick: rebuild the view-projection and feed the renderer
+//   * one BakeClient per mount; it lazily spawns + tears down workers
+//   * useDebouncedBake turns rapid (n, l, m) changes into a single bake
+//   * each new volume → renderer.setVolume + camera.fit(halfExtent)
 //   * pointer / wheel / touch are routed to the camera
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { mat4 } from 'gl-matrix';
 
 import { OrbitCamera } from '@/lib/camera/orbit-camera';
 import { attachPointerInput } from '@/lib/camera/pointer-input';
 import { Raymarcher } from '@/lib/renderer/raymarch';
+import { BakeClient } from '@/lib/bake/client';
+import { useDebouncedBake } from '@/hooks/useDebouncedBake';
+import type { OrbitalParams } from './Controls';
 
-const N = 1;
-const L = 0;
-const M = 0;
 const RES = 96;
 
 // Tracer-bullet defaults that match `atom-desktop` initial UI values.
 const RAYMARCH_PARAMS = { k: 5, exposure: 1, steps: 256 };
 
-type BakeResultMsg = {
-  type: 'bake-result';
-  data: Float32Array;
-  halfExtent: number;
-  peak: number;
+export type AtomCanvasProps = {
+  params: OrbitalParams;
 };
 
-type WorkerMsg = { type: 'ready' } | BakeResultMsg;
-
-export default function AtomCanvas() {
+export default function AtomCanvas({ params }: AtomCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const rendererRef = useRef<Raymarcher | null>(null);
+  const cameraRef = useRef<OrbitCamera | null>(null);
+
+  // One BakeClient for the lifetime of this component instance. The
+  // factory creates a fresh module Worker per requestBake — cancellation
+  // is terminate-and-respawn, owned inside the client.
+  const client = useMemo(
+    () =>
+      new BakeClient(
+        () =>
+          new Worker(new URL('../lib/bake-worker.ts', import.meta.url), {
+            type: 'module',
+          }),
+      ),
+    [],
+  );
+
+  const bakeParams = useMemo(
+    () => ({ n: params.n, l: params.l, m: params.m, res: RES }),
+    [params.n, params.l, params.m],
+  );
+  const { volume } = useDebouncedBake(bakeParams, client);
+
+  useEffect(() => {
+    return () => {
+      client.dispose();
+    };
+  }, [client]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -42,11 +64,13 @@ export default function AtomCanvas() {
 
     const renderer = new Raymarcher(canvas);
     renderer.setParams(RAYMARCH_PARAMS);
+    rendererRef.current = renderer;
 
     // Aspect is updated on the first sizeToWindow call below, so the
-    // initial 1.0 is just a placeholder. Radius is meaningless until the
-    // first bake fires camera.fit(halfExtent).
+    // initial 1.0 is just a placeholder. Radius is reset by camera.fit
+    // when the first volume arrives.
     const camera = new OrbitCamera(2.0, 1.0);
+    cameraRef.current = camera;
 
     let rafId = 0;
     let disposed = false;
@@ -63,24 +87,8 @@ export default function AtomCanvas() {
 
     const detachInput = attachPointerInput(canvas, camera);
 
-    // The worker URL pattern is how Next.js (webpack + turbopack) picks
-    // up a TS file as a Web Worker entry and bundles it as its own chunk.
-    const worker = new Worker(new URL('../lib/bake-worker.ts', import.meta.url), {
-      type: 'module',
-    });
-
     // Reused per-frame to avoid allocating a fresh Float32Array every tick.
     const invVP = mat4.create();
-
-    worker.addEventListener('message', (ev: MessageEvent<WorkerMsg>) => {
-      const msg = ev.data;
-      if (msg.type === 'ready') {
-        worker.postMessage({ type: 'bake', n: N, l: L, m: M, res: RES });
-      } else if (msg.type === 'bake-result') {
-        renderer.setVolume({ data: msg.data, res: RES, halfExtent: msg.halfExtent });
-        camera.fit(msg.halfExtent);
-      }
-    });
 
     const tick = () => {
       if (disposed) return;
@@ -100,10 +108,27 @@ export default function AtomCanvas() {
       cancelAnimationFrame(rafId);
       window.removeEventListener('resize', sizeToWindow);
       detachInput();
-      worker.terminate();
       renderer.dispose();
+      rendererRef.current = null;
+      cameraRef.current = null;
     };
   }, []);
+
+  // Each new volume → push to GPU and reframe. Re-fitting on every bake
+  // (not just the first) keeps wildly different orbital sizes — say a 1s
+  // vs a 6f — both nicely framed when the user scrubs.
+  useEffect(() => {
+    if (!volume) return;
+    const renderer = rendererRef.current;
+    const camera = cameraRef.current;
+    if (!renderer || !camera) return;
+    renderer.setVolume({
+      data: volume.data,
+      res: volume.res,
+      halfExtent: volume.halfExtent,
+    });
+    camera.fit(volume.halfExtent);
+  }, [volume]);
 
   return (
     <canvas

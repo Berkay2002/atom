@@ -4,10 +4,11 @@
 // hydrogen wavefunction math (rayon-free under wasm) never blocks the
 // rendering thread.
 //
-// Protocol:
-//   main -> worker:  { type: 'bake', n, l, m, res }
-//   worker -> main:  { type: 'ready' }            (after init)
-//                  | { type: 'bake-result', data: Float32Array,
+// Protocol (single-shot per worker — cancellation = terminate + respawn,
+// orchestrated by `BakeClient`):
+//
+//   main -> worker:  { type: 'requestBake', n, l, m, res }
+//   worker -> main:  { type: 'bake-result', data: Float32Array,
 //                      halfExtent: number, peak: number }
 //
 // The `data` Float32Array returned by atom-core's BakeResult is a *view*
@@ -17,40 +18,33 @@
 
 import init, { bake } from '../../wasm/atom_core.js';
 
-type BakeRequest = {
-  type: 'bake';
+export type BakeRequest = {
+  type: 'requestBake';
   n: number;
   l: number;
   m: number;
   res: number;
 };
 
-type WorkerOut =
-  | { type: 'ready' }
-  | {
-      type: 'bake-result';
-      data: Float32Array;
-      halfExtent: number;
-      peak: number;
-    };
+export type BakeResult = {
+  type: 'bake-result';
+  data: Float32Array;
+  halfExtent: number;
+  peak: number;
+};
 
 const ctx = self as unknown as DedicatedWorkerGlobalScope;
 
 let ready: Promise<void> | null = null;
 
 function ensureReady(): Promise<void> {
-  if (!ready) {
-    ready = init().then(() => {
-      const msg: WorkerOut = { type: 'ready' };
-      ctx.postMessage(msg);
-    });
-  }
+  if (!ready) ready = init().then(() => undefined);
   return ready;
 }
 
 ctx.addEventListener('message', async (ev: MessageEvent<BakeRequest>) => {
   const req = ev.data;
-  if (!req || req.type !== 'bake') return;
+  if (!req || req.type !== 'requestBake') return;
   await ensureReady();
 
   const result = bake(req.n, req.l, req.m, req.res);
@@ -64,7 +58,7 @@ ctx.addEventListener('message', async (ev: MessageEvent<BakeRequest>) => {
   const peak = result.peak;
   result.free();
 
-  const out: WorkerOut = {
+  const out: BakeResult = {
     type: 'bake-result',
     data: copy,
     halfExtent,
