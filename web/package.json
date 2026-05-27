@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "wasm": "pwsh ./scripts/build-wasm.ps1",
+    "watch:wasm": "pwsh ./scripts/watch-wasm.ps1",
     "predev": "pwsh ./scripts/build-wasm.ps1",
     "dev": "next dev",
     "build": "pwsh ./scripts/build-wasm.ps1 && next build",
