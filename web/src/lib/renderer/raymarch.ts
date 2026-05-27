@@ -9,6 +9,7 @@
 // the canvas passed in.
 
 import type { ColormapStops } from '../colormaps';
+import { buildColormapLutBytes } from './raymarch-contract';
 import { FRAG_SRC, VERT_SRC } from './shaders';
 
 export type RaymarchParams = {
@@ -148,28 +149,7 @@ export class Raymarcher {
    */
   setColormap(stops: ColormapStops): void {
     const { gl } = this;
-    const n = stops.length;
-    if (n < 2) throw new Error(`colormap needs at least 2 stops, got ${n}`);
-
-    const data = new Uint8Array(256 * 4);
-    for (let i = 0; i < 256; i += 1) {
-      const t = i / 255;
-      const f = t * (n - 1);
-      const lo = Math.floor(f);
-      const hi = Math.min(lo + 1, n - 1);
-      const a = f - lo;
-      const inv = 1 - a;
-      const c0 = stops[lo];
-      const c1 = stops[hi];
-      const r = Math.round(c0[0] * inv + c1[0] * a);
-      const gch = Math.round(c0[1] * inv + c1[1] * a);
-      const b = Math.round(c0[2] * inv + c1[2] * a);
-      const off = i * 4;
-      data[off] = r;
-      data[off + 1] = gch;
-      data[off + 2] = b;
-      data[off + 3] = 255;
-    }
+    const data = buildColormapLutBytes(stops);
 
     if (!this.lutTexture) {
       const tex = gl.createTexture();

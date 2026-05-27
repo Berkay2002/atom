@@ -92,6 +92,8 @@ Each decision was made deliberately; record the why so future-you doesn't quietl
 
 GPU volume ray-march in a fragment shader (full-screen triangle).
 
+The shared renderer semantics are documented in `docs/raymarch-contract.md`. That contract keeps desktop WGSL and web GLSL aligned without introducing a shared renderer module.
+
 **Per pixel:**
 1. Compute ray origin/direction from camera, transform into box-local space.
 2. Slab-intersect ray with `[-1, 1]³` box; if miss → background (`#000000`) and exit.
