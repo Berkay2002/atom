@@ -9,7 +9,7 @@
 use js_sys::Float32Array;
 use wasm_bindgen::prelude::*;
 
-use crate::scene::{Atom, ElementId, Orbital, Scene, View};
+use crate::scene::{self, Atom, ElementId, Orbital, Scene, View};
 use crate::volume;
 
 /// Result of a single volume bake, owned on the Rust side.
@@ -86,4 +86,97 @@ pub fn bake_scene(
         half_extent: v.half_extent as f32,
         peak: v.peak as f32,
     }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+//  URL-state codec (issue 04)
+// ─────────────────────────────────────────────────────────────────────────
+//
+// JS-friendly projection of a `Scene` for the slice-1 wire format. We
+// deliberately don't expose the full `Scene` across the FFI boundary —
+// it'd require leaking `Vec<Atom>` machinery into wasm-bindgen. Instead,
+// the JS side hands us flat primitives, and we hand back a plain struct
+// with getters for each field the URL actually carries. This keeps the
+// FFI surface aligned with the wire format and makes drift impossible.
+
+/// Decoded URL state, mirroring the wire-format field set 1:1. Position
+/// is implicit (slice-1 scenes are single-atom at the origin), camera
+/// state is excluded by design — see scene.rs module docs.
+#[wasm_bindgen]
+pub struct DecodedScene {
+    element_z: u32,
+    n: u32,
+    l: u32,
+    m: i32,
+    use_bare_z: bool,
+    colormap_id: u32,
+    exposure: f32,
+}
+
+#[wasm_bindgen]
+impl DecodedScene {
+    #[wasm_bindgen(getter)]
+    pub fn element_z(&self) -> u32 { self.element_z }
+    #[wasm_bindgen(getter)]
+    pub fn n(&self) -> u32 { self.n }
+    #[wasm_bindgen(getter)]
+    pub fn l(&self) -> u32 { self.l }
+    #[wasm_bindgen(getter)]
+    pub fn m(&self) -> i32 { self.m }
+    #[wasm_bindgen(getter)]
+    pub fn use_bare_z(&self) -> bool { self.use_bare_z }
+    #[wasm_bindgen(getter)]
+    pub fn colormap_id(&self) -> u32 { self.colormap_id }
+    #[wasm_bindgen(getter)]
+    pub fn exposure(&self) -> f32 { self.exposure }
+}
+
+/// Encode the slice-1 single-atom view to a `v1:` URL string. Always
+/// succeeds — the input shape (flat primitives) can't represent a
+/// multi-atom or empty scene, so the `EncodeError` variants are
+/// unreachable here.
+#[wasm_bindgen]
+pub fn scene_encode(
+    element_z: u32,
+    n: u32,
+    l: u32,
+    m: i32,
+    use_bare_z: bool,
+    colormap_id: u32,
+    exposure: f32,
+) -> String {
+    let scene = Scene {
+        atoms: vec![Atom {
+            element: ElementId(element_z),
+            position: [0.0, 0.0, 0.0],
+            orbital: Orbital { n, l, m },
+        }],
+        view: View {
+            use_bare_z,
+            camera: crate::scene::CameraState::default(),
+            colormap: crate::scene::ColormapId(colormap_id),
+            exposure,
+        },
+    };
+    // unwrap: single non-empty atom — neither EncodeError variant can fire.
+    scene::encode(&scene).expect("single-atom scene always encodes")
+}
+
+/// Decode a `v1:` URL string into a `DecodedScene`. Errors are surfaced
+/// as `JsError` so JS-side `catch` clauses see a real `Error` with the
+/// `DecodeError::Display` message, ready to drop into a banner.
+#[wasm_bindgen]
+pub fn scene_decode(s: &str) -> Result<DecodedScene, JsError> {
+    let scene = scene::decode(s).map_err(|e| JsError::new(&format!("{}", e)))?;
+    // decode is contractually single-atom at the origin — see scene.rs.
+    let atom = &scene.atoms[0];
+    Ok(DecodedScene {
+        element_z: atom.element.0,
+        n: atom.orbital.n,
+        l: atom.orbital.l,
+        m: atom.orbital.m,
+        use_bare_z: scene.view.use_bare_z,
+        colormap_id: scene.view.colormap.0,
+        exposure: scene.view.exposure,
+    })
 }

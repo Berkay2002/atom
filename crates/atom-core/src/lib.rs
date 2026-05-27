@@ -12,7 +12,10 @@ pub mod slater;
 pub mod volume;
 
 pub use element::{element_data, ElementData, ELEMENTS};
-pub use scene::{Atom, CameraState, ColormapId, ElementId, Orbital, Scene, View};
+pub use scene::{
+    decode as scene_decode, encode as scene_encode, Atom, CameraState, ColormapId, DecodeError,
+    ElementId, EncodeError, Orbital, Scene, View,
+};
 pub use slater::z_eff;
 
 #[cfg(feature = "wasm")]
