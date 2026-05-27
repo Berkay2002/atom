@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import type { ColormapName } from '@/lib/colormaps';
-import { homoFor } from '@/lib/element-homo';
+import { homoFor } from '@/lib/element-presentation';
 import {
   decodeScene,
   encodeScene,

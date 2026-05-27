@@ -57,3 +57,26 @@ fn wasm_bake_matches_native_bake_elementwise() {
         "peak mismatch"
     );
 }
+
+#[wasm_bindgen_test]
+fn wasm_element_presentation_matches_native_projection() {
+    for z in 1u32..=18 {
+        let native = atom_core::element::element_presentation(atom_core::scene::ElementId(z))
+            .expect("supported element");
+        let wasm = atom_core::wasm::element_presentation(z).expect("supported element");
+
+        assert_eq!(wasm.atomic_number(), native.atomic_number, "Z={z} atomic number");
+        assert_eq!(wasm.symbol(), native.symbol, "Z={z} symbol");
+        assert_eq!(wasm.display_name(), native.display_name, "Z={z} display name");
+        assert_eq!(wasm.config_text(), native.config_str, "Z={z} config text");
+        assert_eq!(wasm.homo_n(), native.homo.n, "Z={z} homo n");
+        assert_eq!(wasm.homo_l(), native.homo.l, "Z={z} homo l");
+        assert_eq!(wasm.homo_m(), native.homo.m, "Z={z} homo m");
+        assert_eq!(wasm.slot_period(), native.slot.period, "Z={z} slot period");
+        assert_eq!(wasm.slot_group(), native.slot.group, "Z={z} slot group");
+    }
+
+    assert!(atom_core::wasm::element_presentation(0).is_none());
+    assert!(atom_core::wasm::element_presentation(19).is_none());
+    assert!(atom_core::wasm::element_presentation(99).is_none());
+}

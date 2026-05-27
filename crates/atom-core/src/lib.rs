@@ -12,7 +12,8 @@ pub mod slater;
 pub mod volume;
 
 pub use element::{
-    caption, element_data, homo, orbital_description, orbital_label, ElementData, ELEMENTS,
+    caption, element_data, element_presentation, homo, orbital_description, orbital_label,
+    ElementData, ElementPresentation, PeriodicSlot, ELEMENTS, PERIODIC_SLOTS,
 };
 pub use scene::{
     decode as scene_decode, encode as scene_encode, Atom, CameraState, ColormapId, DecodeError,

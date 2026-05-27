@@ -29,6 +29,7 @@ import {
   type ColormapName,
   type ColormapStops,
 } from '@/lib/colormaps';
+import { ELEMENT_PRESENTATIONS } from '@/lib/element-presentation';
 import { PRESETS, type Preset } from '@/lib/presets';
 import { useSceneCaption } from '@/lib/scene-caption';
 import TourPicker from '@/components/TourPicker';
@@ -328,45 +329,6 @@ function ChipStrip({
   );
 }
 
-// Periodic-table-shaped element picker (issue 05). The 18 elements of
-// periods 1-3 are laid out at their real periodic-table positions: H in
-// column 1 and He in column 18; Li, Be in columns 1-2 with B..Ne jumping
-// to columns 13-18; same shape for period 3. The gaps where the
-// transition metals would live are intentional — the layout itself is
-// part of the pedagogy.
-//
-// `row` is 1-indexed and `col` is the CSS grid column (1..=18).
-type PeriodicCell = {
-  z: number;
-  symbol: string;
-  row: number;
-  col: number;
-};
-
-const PERIODIC_LAYOUT: readonly PeriodicCell[] = [
-  // Period 1
-  { z: 1, symbol: 'H', row: 1, col: 1 },
-  { z: 2, symbol: 'He', row: 1, col: 18 },
-  // Period 2
-  { z: 3, symbol: 'Li', row: 2, col: 1 },
-  { z: 4, symbol: 'Be', row: 2, col: 2 },
-  { z: 5, symbol: 'B', row: 2, col: 13 },
-  { z: 6, symbol: 'C', row: 2, col: 14 },
-  { z: 7, symbol: 'N', row: 2, col: 15 },
-  { z: 8, symbol: 'O', row: 2, col: 16 },
-  { z: 9, symbol: 'F', row: 2, col: 17 },
-  { z: 10, symbol: 'Ne', row: 2, col: 18 },
-  // Period 3
-  { z: 11, symbol: 'Na', row: 3, col: 1 },
-  { z: 12, symbol: 'Mg', row: 3, col: 2 },
-  { z: 13, symbol: 'Al', row: 3, col: 13 },
-  { z: 14, symbol: 'Si', row: 3, col: 14 },
-  { z: 15, symbol: 'P', row: 3, col: 15 },
-  { z: 16, symbol: 'S', row: 3, col: 16 },
-  { z: 17, symbol: 'Cl', row: 3, col: 17 },
-  { z: 18, symbol: 'Ar', row: 3, col: 18 },
-];
-
 // Narrow-viewport breakpoint: below this width the 18-column layout would
 // produce sub-tappable cells (~14px each at 280px panel width). We fall
 // back to the issue-02 6-cols × 3-rows dense grid so the picker remains
@@ -477,7 +439,7 @@ function ElementPicker({ value, onPick }: ElementPickerProps) {
         element
       </span>
       <div style={gridStyle} role="radiogroup" aria-label="element">
-        {PERIODIC_LAYOUT.map(({ z, symbol, row, col }) => {
+        {ELEMENT_PRESENTATIONS.map(({ atomicNumber: z, symbol, slot }) => {
           const isSelected = z === value;
           const isHovered = !isSelected && hovered === z;
           const baseStyle = isNarrow ? chipBase : periodicCellBase;
@@ -492,7 +454,7 @@ function ElementPicker({ value, onPick }: ElementPickerProps) {
           // placement; the dense fallback fills cells in source order.
           const placedStyle: CSSProperties = isNarrow
             ? style
-            : { ...style, gridRow: row, gridColumn: col };
+            : { ...style, gridRow: slot.period, gridColumn: slot.group };
           return (
             <button
               key={symbol}

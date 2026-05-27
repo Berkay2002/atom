@@ -10,6 +10,14 @@ use crate::ui_widgets::{
     preset_strip, scale_readout, swatch_row, toggle_switch,
 };
 
+fn shared_element_labels() -> [&'static str; 18] {
+    std::array::from_fn(|i| {
+        atom_core::element_presentation(ElementId((i + 1) as u32))
+            .map(|presentation| presentation.symbol)
+            .unwrap_or("?")
+    })
+}
+
 pub struct UiState {
     /// Atomic number (1..=18) of the selected element. Drives the per-atom
     /// `z_eff` resolution in `bake_scene`. Issue 02 ships a functional but
@@ -172,16 +180,12 @@ pub fn panel(ctx: &egui::Context, s: &mut UiState) -> bool {
                         .size(LABEL_SIZE)
                         .color(TEXT_TERTIARY),
                 );
-                const ELEMENT_LABELS: [&str; 18] = [
-                    "H", "He", "Li", "Be", "B", "C",
-                    "N", "O", "F", "Ne", "Na", "Mg",
-                    "Al", "Si", "P", "S", "Cl", "Ar",
-                ];
+                let element_labels = shared_element_labels();
                 let element_selected = (s.element_z as usize).saturating_sub(1).min(17);
                 for row in 0..3 {
                     let lo = row * 6;
                     let hi = lo + 6;
-                    let labels: &[&str] = &ELEMENT_LABELS[lo..hi];
+                    let labels: &[&str] = &element_labels[lo..hi];
                     let enabled = [true; 6];
                     let sel_in_row = if element_selected >= lo && element_selected < hi {
                         element_selected - lo
@@ -191,18 +195,19 @@ pub fn panel(ctx: &egui::Context, s: &mut UiState) -> bool {
                     let salt = format!("element-row-{row}");
                     if let Some(idx) = chip_strip(ui, labels, sel_in_row, &enabled, &salt) {
                         let new_z = (lo + idx) as u32 + 1;
-                        s.element_z = new_z;
-                        // Snap (n, l, m) to the element's HOMO so the
-                        // canvas always shows that element's iconic
-                        // orbital instead of whatever happened to be
-                        // selected before. The old behaviour kept the
-                        // previous orbital across element changes, which
-                        // produced empty renders whenever the orbital
-                        // was unoccupied at the new Z under Slater
-                        // shielding (e.g. 3d on Carbon → z_eff = 0).
-                        // The user can still navigate to any (n, l, m)
-                        // with the chip strips or presets afterwards.
-                        if let Some(o) = atom_core::homo(ElementId(new_z)) {
+                        if let Some(presentation) = atom_core::element_presentation(ElementId(new_z)) {
+                            s.element_z = new_z;
+                            // Snap (n, l, m) to the element's HOMO so the
+                            // canvas always shows that element's iconic
+                            // orbital instead of whatever happened to be
+                            // selected before. The old behaviour kept the
+                            // previous orbital across element changes, which
+                            // produced empty renders whenever the orbital
+                            // was unoccupied at the new Z under Slater
+                            // shielding (e.g. 3d on Carbon → z_eff = 0).
+                            // The user can still navigate to any (n, l, m)
+                            // with the chip strips or presets afterwards.
+                            let o = presentation.homo;
                             s.n = o.n;
                             s.l = o.l;
                             s.m = o.m;

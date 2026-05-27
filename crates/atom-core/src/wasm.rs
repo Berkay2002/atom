@@ -9,6 +9,7 @@
 use js_sys::Float32Array;
 use wasm_bindgen::prelude::*;
 
+use crate::element;
 use crate::scene::{self, Atom, ElementId, Orbital, Scene, View};
 use crate::volume;
 
@@ -179,6 +180,66 @@ pub fn scene_caption(element_z: u32, n: u32, l: u32, m: i32) -> String {
         view: View::default(),
     };
     crate::element::caption(&scene)
+}
+
+/// JS-friendly projection of `atom_core::element_presentation`.
+///
+/// The web target keeps a synchronous TS snapshot for click handling and
+/// layout, but the parity tests compare that snapshot against this
+/// wasm-exported Rust projection so the snapshot cannot drift.
+#[wasm_bindgen]
+pub struct ElementPresentationJs {
+    atomic_number: u32,
+    symbol: &'static str,
+    display_name: &'static str,
+    config_text: &'static str,
+    homo_n: u32,
+    homo_l: u32,
+    homo_m: i32,
+    slot_period: u8,
+    slot_group: u8,
+}
+
+#[wasm_bindgen]
+impl ElementPresentationJs {
+    #[wasm_bindgen(getter)]
+    pub fn atomic_number(&self) -> u32 { self.atomic_number }
+    #[wasm_bindgen(getter)]
+    pub fn symbol(&self) -> String { self.symbol.to_string() }
+    #[wasm_bindgen(getter)]
+    pub fn display_name(&self) -> String { self.display_name.to_string() }
+    #[wasm_bindgen(getter)]
+    pub fn config_text(&self) -> String { self.config_text.to_string() }
+    #[wasm_bindgen(getter)]
+    pub fn homo_n(&self) -> u32 { self.homo_n }
+    #[wasm_bindgen(getter)]
+    pub fn homo_l(&self) -> u32 { self.homo_l }
+    #[wasm_bindgen(getter)]
+    pub fn homo_m(&self) -> i32 { self.homo_m }
+    #[wasm_bindgen(getter)]
+    pub fn slot_period(&self) -> u8 { self.slot_period }
+    #[wasm_bindgen(getter)]
+    pub fn slot_group(&self) -> u8 { self.slot_group }
+}
+
+/// Look up the shared element presentation for `element_z`.
+///
+/// Returns `None` for unsupported atomic numbers, matching the native
+/// `atom_core::element_presentation` helper.
+#[wasm_bindgen]
+pub fn element_presentation(element_z: u32) -> Option<ElementPresentationJs> {
+    let native = element::element_presentation(ElementId(element_z))?;
+    Some(ElementPresentationJs {
+        atomic_number: native.atomic_number,
+        symbol: native.symbol,
+        display_name: native.display_name,
+        config_text: native.config_text,
+        homo_n: native.homo.n,
+        homo_l: native.homo.l,
+        homo_m: native.homo.m,
+        slot_period: native.slot.period,
+        slot_group: native.slot.group,
+    })
 }
 
 /// Decode a `v1:` URL string into a `DecodedScene`. Errors are surfaced
