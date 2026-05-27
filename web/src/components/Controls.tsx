@@ -39,13 +39,6 @@ export type OrbitalParams = {
   m: number;
 };
 
-/** Symbols for the first 18 elements, indexed by `atomicNumber - 1`. */
-export const ELEMENT_SYMBOLS: readonly string[] = [
-  'H', 'He', 'Li', 'Be', 'B', 'C',
-  'N', 'O', 'F', 'Ne', 'Na', 'Mg',
-  'Al', 'Si', 'P', 'S', 'Cl', 'Ar',
-];
-
 export type ControlsProps = {
   /** Selected element's atomic number (1..=18). */
   elementZ: number;

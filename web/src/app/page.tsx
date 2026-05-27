@@ -190,9 +190,11 @@ function HomeContent() {
   }, []);
 
   // Debounced localStorage write — same shape as before, plus the URL
-  // writer below.
+  // writer below. Skipped during tour mode so mid-tour states don't
+  // overwrite the user's pre-tour saved selection.
   useEffect(() => {
     if (!hydratedRef.current) return;
+    if (tourMode) return;
     const snapshot: StoredState = {
       elementZ,
       n: params.n,
@@ -205,7 +207,7 @@ function HomeContent() {
     };
     const timer = setTimeout(() => saveStoredState(snapshot), STORAGE_DEBOUNCE_MS);
     return () => clearTimeout(timer);
-  }, [elementZ, params.n, params.l, params.m, colormap, autoRotate, hudVisible, useBareZ]);
+  }, [elementZ, params.n, params.l, params.m, colormap, autoRotate, hudVisible, useBareZ, tourMode]);
 
   // Debounced URL writer — encode the current scene state and push it
   // into the address bar via `router.replace` so the back button stays
