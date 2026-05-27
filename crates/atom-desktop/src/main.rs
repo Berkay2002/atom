@@ -177,7 +177,7 @@ impl GpuState {
                 l: self.ui.l,
                 m: self.ui.m,
             });
-            let v = volume::bake_scene(&scene, self.ui.resolution as u32);
+            let v = volume::bake_scene(&scene, self.ui.resolution);
             self.last_peak = v.peak;
             self.renderer.replace_volume(&self.device, &self.queue, &v);
             self.current_n = self.ui.n;

@@ -65,7 +65,7 @@ impl BakeResult {
 #[wasm_bindgen]
 pub fn bake_scene(n: u32, l: u32, m: i32, res: u32) -> BakeResult {
     let scene = Scene::single_hydrogen(Orbital { n, l, m });
-    let v = volume::bake_scene(&scene, res);
+    let v = volume::bake_scene(&scene, res as usize);
     BakeResult {
         data: v.data,
         half_extent: v.half_extent as f32,

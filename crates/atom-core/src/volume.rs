@@ -44,8 +44,7 @@ pub struct Volume {
 /// preserved in `Volume::peak`.
 ///
 /// Hydrogen-only for slice 1: `z_eff` is hard-coded to `1.0` (bare hydrogen).
-pub fn bake_scene(scene: &Scene, res: u32) -> Volume {
-    let res = res as usize;
+pub fn bake_scene(scene: &Scene, res: usize) -> Volume {
     let half_extent = scene
         .atoms
         .iter()
