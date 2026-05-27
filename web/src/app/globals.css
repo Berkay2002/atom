@@ -13,3 +13,12 @@ body {
 * {
   box-sizing: border-box;
 }
+
+/* Slow indeterminate sweep for the bake-in-flight progress bar. The
+   stripe lives at -30%..0 off-screen-left, slides across to 100% off
+   the right edge, then snaps back. Eased so the velocity peaks mid-bar
+   — reads as "working" without strobing. */
+@keyframes atom-bake-sweep {
+  0%   { transform: translateX(-50%); }
+  100% { transform: translateX(400%); }
+}

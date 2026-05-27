@@ -67,7 +67,7 @@ export default function AtomCanvas({ params, colormap, autoRotate }: AtomCanvasP
     () => ({ n: params.n, l: params.l, m: params.m, res: RES }),
     [params.n, params.l, params.m],
   );
-  const { volume } = useDebouncedBake(bakeParams, client);
+  const { volume, baking } = useDebouncedBake(bakeParams, client);
 
   useEffect(() => {
     return () => {
@@ -175,16 +175,64 @@ export default function AtomCanvas({ params, colormap, autoRotate }: AtomCanvasP
   }, [colormap]);
 
   return (
-    <canvas
-      ref={canvasRef}
-      style={{
-        position: 'fixed',
-        inset: 0,
-        width: '100vw',
-        height: '100vh',
-        display: 'block',
-        background: '#000',
-      }}
-    />
+    <>
+      <canvas
+        ref={canvasRef}
+        style={{
+          position: 'fixed',
+          inset: 0,
+          width: '100vw',
+          height: '100vh',
+          display: 'block',
+          background: '#000',
+        }}
+      />
+      {/*
+        Bake-in-flight indicator: a thin orange stripe sliding across the
+        top edge of the viewport while `baking` is true. Opacity-fades in
+        ~100ms and out ~150ms so chip-click bursts don't strobe, but the
+        bar still feels instant to the eye. `pointer-events: none` on
+        wrapper *and* stripe so the camera drag never gets blocked.
+      */}
+      <div
+        aria-hidden="true"
+        style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          height: 2,
+          overflow: 'hidden',
+          pointerEvents: 'none',
+          zIndex: 20,
+          opacity: baking ? 1 : 0,
+          transition: baking
+            ? 'opacity 100ms ease-out'
+            : 'opacity 150ms ease-in',
+        }}
+      >
+        <div
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            // 30% of the bar's width — leaves comfortable empty space on
+            // either side as it sweeps across.
+            width: '30%',
+            height: '100%',
+            // Soft-edged stripe in the project accent so it doesn't read
+            // as a hard rectangle when it enters / exits the viewport.
+            background:
+              'linear-gradient(to right, rgba(255, 138, 76, 0) 0%, #ff8a4c 50%, rgba(255, 138, 76, 0) 100%)',
+            // Only animate while visible — pausing when hidden avoids
+            // burning a compositor cycle on every frame between bakes.
+            animation: baking
+              ? 'atom-bake-sweep 1.2s ease-in-out infinite'
+              : 'none',
+            willChange: 'transform',
+          }}
+        />
+      </div>
+    </>
   );
 }
