@@ -15,7 +15,12 @@
 // ported as CSS variables on the panel so the chip styles can reference
 // them without duplicating the alpha values.
 
-import { useState, type CSSProperties, type PointerEvent } from 'react';
+import {
+  useState,
+  useSyncExternalStore,
+  type CSSProperties,
+  type PointerEvent,
+} from 'react';
 
 import {
   COLORMAP_LABELS,
@@ -303,11 +308,103 @@ function ChipStrip({
   );
 }
 
-// Functional element picker — issue 02 spec calls for "a simple flat list
-// or basic grid of 18 element symbols; clicking selects". Issue 05 will
-// replace this with a polished periodic-table layout. The 6-column CSS
-// grid mirrors the desktop's 3-rows-of-6 chip layout.
-const elementGridStyle: CSSProperties = {
+// Periodic-table-shaped element picker (issue 05). The 18 elements of
+// periods 1-3 are laid out at their real periodic-table positions: H in
+// column 1 and He in column 18; Li, Be in columns 1-2 with B..Ne jumping
+// to columns 13-18; same shape for period 3. The gaps where the
+// transition metals would live are intentional — the layout itself is
+// part of the pedagogy.
+//
+// `row` is 1-indexed and `col` is the CSS grid column (1..=18).
+type PeriodicCell = {
+  z: number;
+  symbol: string;
+  row: number;
+  col: number;
+};
+
+const PERIODIC_LAYOUT: readonly PeriodicCell[] = [
+  // Period 1
+  { z: 1, symbol: 'H', row: 1, col: 1 },
+  { z: 2, symbol: 'He', row: 1, col: 18 },
+  // Period 2
+  { z: 3, symbol: 'Li', row: 2, col: 1 },
+  { z: 4, symbol: 'Be', row: 2, col: 2 },
+  { z: 5, symbol: 'B', row: 2, col: 13 },
+  { z: 6, symbol: 'C', row: 2, col: 14 },
+  { z: 7, symbol: 'N', row: 2, col: 15 },
+  { z: 8, symbol: 'O', row: 2, col: 16 },
+  { z: 9, symbol: 'F', row: 2, col: 17 },
+  { z: 10, symbol: 'Ne', row: 2, col: 18 },
+  // Period 3
+  { z: 11, symbol: 'Na', row: 3, col: 1 },
+  { z: 12, symbol: 'Mg', row: 3, col: 2 },
+  { z: 13, symbol: 'Al', row: 3, col: 13 },
+  { z: 14, symbol: 'Si', row: 3, col: 14 },
+  { z: 15, symbol: 'P', row: 3, col: 15 },
+  { z: 16, symbol: 'S', row: 3, col: 16 },
+  { z: 17, symbol: 'Cl', row: 3, col: 17 },
+  { z: 18, symbol: 'Ar', row: 3, col: 18 },
+];
+
+// Narrow-viewport breakpoint: below this width the 18-column layout would
+// produce sub-tappable cells (~14px each at 280px panel width). We fall
+// back to the issue-02 6-cols × 3-rows dense grid so the picker remains
+// usable on mobile-portrait. The threshold is in CSS pixels and is
+// evaluated via a `matchMedia` listener in `ElementPicker`.
+const PERIODIC_NARROW_BREAKPOINT_PX = 400;
+
+// Each periodic cell is square; the 18 columns share equal fractions of
+// the row. The card itself caps at 280px (see `panelStyle.maxWidth`), so
+// individual cells are ~15px wide at the cap. We shrink fonts/padding
+// down from the regular chip to keep the symbols legible.
+const periodicGridStyle: CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(18, 1fr)',
+  gap: 2,
+};
+
+const periodicCellBase: CSSProperties = {
+  // Cells are tiny when squeezed into 18 columns; remove the chip's pill
+  // radius and minWidth so they stay square and don't overflow the row.
+  minWidth: 0,
+  padding: '2px 0',
+  borderRadius: 3,
+  font: 'inherit',
+  fontSize: 10,
+  fontWeight: 600,
+  lineHeight: 1.1,
+  cursor: 'pointer',
+  borderStyle: 'solid',
+  borderWidth: 1,
+  borderColor: 'transparent',
+  background: TOKEN.surfaceMute,
+  color: TOKEN.textPrimary,
+  transition: 'background 120ms ease, border-color 120ms ease, color 120ms ease',
+  textAlign: 'center',
+  // Force square aspect so the grid reads like a real periodic table
+  // rather than a strip of wide rectangles.
+  aspectRatio: '1 / 1',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+};
+
+const periodicCellHover: CSSProperties = {
+  ...periodicCellBase,
+  background: TOKEN.surfaceMuteHover,
+};
+
+const periodicCellSelected: CSSProperties = {
+  ...periodicCellBase,
+  background: TOKEN.accentDim,
+  borderColor: TOKEN.accent,
+};
+
+// Mobile-portrait fallback: 6×3 dense grid (the issue-02 shape), reusing
+// the same chip styling as the n/l/m strips. We render the same
+// PERIODIC_LAYOUT entries but without the explicit `gridColumn`.
+const denseGridStyle: CSSProperties = {
   display: 'grid',
   gridTemplateColumns: 'repeat(6, 1fr)',
   gap: 4,
@@ -318,33 +415,78 @@ type ElementPickerProps = {
   onPick: (z: number) => void;
 };
 
+// Subscribe to a `matchMedia` query the React-19-idiomatic way: this
+// avoids the `react-hooks/set-state-in-effect` warning we'd hit with a
+// useEffect + setState pair. `useSyncExternalStore` is purpose-built for
+// reading values from external mutable sources (browser APIs, window
+// dimensions) without cascading renders.
+const NARROW_MEDIA_QUERY = `(max-width: ${PERIODIC_NARROW_BREAKPOINT_PX}px)`;
+
+function subscribeNarrowMQ(onChange: () => void): () => void {
+  if (typeof window === 'undefined') return () => {};
+  const mq = window.matchMedia(NARROW_MEDIA_QUERY);
+  mq.addEventListener('change', onChange);
+  return () => mq.removeEventListener('change', onChange);
+}
+
+function getNarrowSnapshot(): boolean {
+  return window.matchMedia(NARROW_MEDIA_QUERY).matches;
+}
+
+// SSR snapshot — render the periodic layout on the server so the markup
+// is identical for desktop and most viewports. The client snapshot kicks
+// in immediately after hydration and switches to the dense layout if
+// needed.
+function getNarrowServerSnapshot(): boolean {
+  return false;
+}
+
 function ElementPicker({ value, onPick }: ElementPickerProps) {
   const [hovered, setHovered] = useState<number | null>(null);
+  const isNarrow = useSyncExternalStore(
+    subscribeNarrowMQ,
+    getNarrowSnapshot,
+    getNarrowServerSnapshot,
+  );
+
+  const gridStyle = isNarrow ? denseGridStyle : periodicGridStyle;
+
   return (
     <div style={rowStyle}>
       <span style={labelStyle} title={LABEL_TOOLTIPS.element}>
         element
       </span>
-      <div style={elementGridStyle} role="radiogroup" aria-label="element">
-        {ELEMENT_SYMBOLS.map((sym, i) => {
-          const z = i + 1;
+      <div style={gridStyle} role="radiogroup" aria-label="element">
+        {PERIODIC_LAYOUT.map(({ z, symbol, row, col }) => {
           const isSelected = z === value;
           const isHovered = !isSelected && hovered === z;
-          const style = isSelected ? chipSelected : isHovered ? chipHover : chipBase;
+          const baseStyle = isNarrow ? chipBase : periodicCellBase;
+          const hoverStyle = isNarrow ? chipHover : periodicCellHover;
+          const selectedStyle = isNarrow ? chipSelected : periodicCellSelected;
+          const style: CSSProperties = isSelected
+            ? selectedStyle
+            : isHovered
+              ? hoverStyle
+              : baseStyle;
+          // Only the periodic layout cares about explicit row/column
+          // placement; the dense fallback fills cells in source order.
+          const placedStyle: CSSProperties = isNarrow
+            ? style
+            : { ...style, gridRow: row, gridColumn: col };
           return (
             <button
-              key={sym}
+              key={symbol}
               type="button"
               role="radio"
               aria-checked={isSelected}
-              aria-label={sym}
+              aria-label={symbol}
               onClick={() => onPick(z)}
               onPointerEnter={() => setHovered(z)}
               onPointerLeave={() => setHovered((h) => (h === z ? null : h))}
-              style={style}
-              title={`Z = ${z}`}
+              style={placedStyle}
+              title={`${symbol} — Z = ${z}`}
             >
-              {sym}
+              {symbol}
             </button>
           );
         })}
