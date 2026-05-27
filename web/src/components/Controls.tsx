@@ -30,6 +30,7 @@ import {
   type ColormapStops,
 } from '@/lib/colormaps';
 import { PRESETS, type Preset } from '@/lib/presets';
+import { useSceneCaption } from '@/lib/scene-caption';
 
 export type OrbitalParams = {
   n: number;
@@ -187,6 +188,28 @@ const dividerStyle: CSSProperties = {
   border: 'none',
   borderTop: `1px solid ${TOKEN.divider}`,
   margin: '2px 0',
+};
+
+// "What am I looking at" caption (issue 06). A small, lightly-styled
+// paragraph slot beneath the element picker so visitors who don't read
+// spectroscopic notation can ground themselves before touching the
+// chips. The text comes from `atom-core::caption` via WASM — the same
+// source the desktop renders, so the two targets never drift.
+//
+// `whiteSpace: 'normal'` lets the line wrap on narrow viewports; on
+// wide cards the caption typically stays one line. `minHeight` reserves
+// vertical space so the layout doesn't reflow when the WASM module
+// resolves and the caption pops in for the first time.
+const captionStyle: CSSProperties = {
+  font: 'inherit',
+  fontSize: 11,
+  lineHeight: 1.4,
+  color: TOKEN.textPrimary,
+  opacity: 0.75,
+  margin: 0,
+  // Two lines of vertical space — covers the long descriptions (e.g.
+  // 3d cloverleaf) without leaving a huge gap for one-liners like 1s.
+  minHeight: '2.6em',
 };
 
 // Compact swatch — height kept short so the 2×3 grid stays vertically
@@ -658,6 +681,31 @@ function PresetStrip({ value, onPick }: PresetStripProps) {
   );
 }
 
+type SceneCaptionProps = {
+  elementZ: number;
+  value: OrbitalParams;
+};
+
+// Plain-language caption slot (issue 06). Sits between the periodic
+// picker and the bare-Z toggle, where a visitor's eye lands after
+// they pick an element. The string itself is composed by
+// `atom-core::caption` and surfaced via `useSceneCaption`; until the
+// WASM module is ready the slot renders empty (the parent reserves
+// vertical space via `minHeight` so the layout doesn't reflow).
+function SceneCaption({ elementZ, value }: SceneCaptionProps) {
+  const caption = useSceneCaption({
+    elementZ,
+    n: value.n,
+    l: value.l,
+    m: value.m,
+  });
+  return (
+    <p style={captionStyle} aria-live="polite">
+      {caption ?? ''}
+    </p>
+  );
+}
+
 export default function Controls({
   elementZ,
   onElementChange,
@@ -692,6 +740,7 @@ export default function Controls({
       onWheel={(e) => e.stopPropagation()}
     >
       <ElementPicker value={elementZ} onPick={onElementChange} />
+      <SceneCaption elementZ={elementZ} value={value} />
       <ToggleRow
         label={useBareZ ? 'bare Z' : 'effective Z'}
         labelTooltip={LABEL_TOOLTIPS.bareZ}

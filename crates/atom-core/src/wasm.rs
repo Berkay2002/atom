@@ -162,6 +162,25 @@ pub fn scene_encode(
     scene::encode(&scene).expect("single-atom scene always encodes")
 }
 
+/// Compose the user-facing caption (issue 06) for the slice-1 single-atom
+/// view. Mirrors `scene_encode`'s flat-primitive parameter shape so the
+/// JS side never has to construct a `Scene` across the FFI boundary.
+///
+/// The returned string is the same line `atom_core::caption(&scene)`
+/// produces for the equivalent single-atom `Scene`.
+#[wasm_bindgen]
+pub fn scene_caption(element_z: u32, n: u32, l: u32, m: i32) -> String {
+    let scene = Scene {
+        atoms: vec![Atom {
+            element: ElementId(element_z),
+            position: [0.0, 0.0, 0.0],
+            orbital: Orbital { n, l, m },
+        }],
+        view: View::default(),
+    };
+    crate::element::caption(&scene)
+}
+
 /// Decode a `v1:` URL string into a `DecodedScene`. Errors are surfaced
 /// as `JsError` so JS-side `catch` clauses see a real `Error` with the
 /// `DecodeError::Display` message, ready to drop into a banner.

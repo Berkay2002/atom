@@ -8,7 +8,7 @@
 //! triples — `slater.rs` consumes this directly when resolving the
 //! per-orbital screening sum.
 
-use crate::scene::ElementId;
+use crate::scene::{ElementId, Scene};
 
 /// A single `(n, l, count)` entry in an electron configuration.
 ///
@@ -89,6 +89,142 @@ pub fn element_data(id: ElementId) -> Option<&'static ElementData> {
     Some(&ELEMENTS[(z - 1) as usize])
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+//  Plain-language caption for the "what am I looking at" UI strip
+// ─────────────────────────────────────────────────────────────────────────
+//
+// `caption(&Scene) -> String` produces a single line that names what's on
+// screen in spectroscopic notation plus a one-sentence gloss. Lives next
+// to `ElementData` so the orbital-label table and per-orbital descriptions
+// don't drift across the web/desktop boundary — both targets call into
+// the same function via either a direct `pub use` (desktop) or the
+// `scene_caption` wasm-bindgen export (web).
+//
+// Slice-1 only handles the single-atom case (the only shape a `Scene`
+// can take today). Multi-atom captions are a follow-up — the function
+// falls back to "<n atoms>" when handed more than one, which keeps the
+// caller from rendering an empty string.
+
+/// Spectroscopic letter for an angular-momentum quantum number `l`.
+/// Returns `s`, `p`, `d`, `f`, `g`, `h`, … (a-z after `h`); higher `l`
+/// values use lowercase letters via the standard convention.
+fn l_letter(l: u32) -> &'static str {
+    // Standard spectroscopic series. Beyond `h` the convention is to
+    // continue alphabetically (skipping `j` so the letter `i` isn't
+    // confused with the imaginary unit), but no element in our table
+    // populates an `l >= 6` orbital so the fallback never fires.
+    match l {
+        0 => "s",
+        1 => "p",
+        2 => "d",
+        3 => "f",
+        4 => "g",
+        5 => "h",
+        _ => "?",
+    }
+}
+
+/// Real-spherical-harmonic label for an `(l, m)` pair. Returns the bare
+/// spectroscopic letter for `l=0`, the standard p/d cartesian labels for
+/// `l=1`/`l=2`, and `None` for `(l, m)` combinations outside the slice-1
+/// coverage (which the caller renders as just `n` + `l_letter`).
+///
+/// Naming convention follows the common chemistry-textbook real spherical
+/// harmonics:
+///
+/// | l | m   | label    |
+/// |---|-----|----------|
+/// | 0 |  0  | s        |
+/// | 1 | -1  | p_y      |
+/// | 1 |  0  | p_z      |
+/// | 1 | +1  | p_x      |
+/// | 2 | -2  | d_xy     |
+/// | 2 | -1  | d_yz     |
+/// | 2 |  0  | d_z²     |
+/// | 2 | +1  | d_xz     |
+/// | 2 | +2  | d_x²-y²  |
+pub fn orbital_label(l: u32, m: i32) -> Option<&'static str> {
+    match (l, m) {
+        (0, 0) => Some("s"),
+        (1, -1) => Some("p_y"),
+        (1, 0) => Some("p_z"),
+        (1, 1) => Some("p_x"),
+        (2, -2) => Some("d_xy"),
+        (2, -1) => Some("d_yz"),
+        (2, 0) => Some("d_z\u{00B2}"),
+        (2, 1) => Some("d_xz"),
+        (2, 2) => Some("d_x\u{00B2}-y\u{00B2}"),
+        _ => None,
+    }
+}
+
+/// One-sentence plain-language description for an `(n, l)` subshell. Six
+/// hand-written entries cover the slice-1 menu (1s, 2s, 2p, 3s, 3p, 3d).
+/// Higher (n, l) combinations fall back to a generic phrasing in
+/// `caption` so unknown orbitals still produce a readable line.
+pub fn orbital_description(n: u32, l: u32) -> Option<&'static str> {
+    match (n, l) {
+        (1, 0) => Some("the ground-state orbital, spherical and centered on the nucleus."),
+        (2, 0) => Some("a larger spherical orbital with one radial node."),
+        (2, 1) => Some("a dumbbell-shaped orbital with two lobes along one axis."),
+        (3, 0) => Some("a spherical orbital with two radial nodes — the 3s shell."),
+        (3, 1) => Some("a dumbbell-shaped 3p orbital, larger than 2p with an extra radial node."),
+        (3, 2) => Some("a four-lobed d orbital — the first shell where the cloverleaf shapes appear."),
+        _ => None,
+    }
+}
+
+/// Compose the user-facing caption for a `Scene`.
+///
+/// Format for a single-atom scene:
+///   `"<Element name> <n><orbital-label> — <one-sentence description>"`
+///
+/// Edge cases:
+///   * Empty scene → `"No atoms"`.
+///   * Multi-atom scene → `"<count> atoms"` (placeholder until the
+///     multi-atom UI lands; keeps the caller from rendering blank).
+///   * Unknown element Z → falls back to `"Element Z=<n>"`.
+///   * `(l, m)` outside the labeled table → drops the subscript and uses
+///     just `"<n><letter>"` (e.g. `"4f"`), so exotic orbitals still read
+///     cleanly even when no cartesian label is defined.
+///   * `(n, l)` outside the description table → generic
+///     `"<element-name> <orbital-label> orbital."` line.
+pub fn caption(scene: &Scene) -> String {
+    match scene.atoms.len() {
+        0 => "No atoms".to_string(),
+        1 => single_atom_caption(scene),
+        n => format!("{} atoms", n),
+    }
+}
+
+fn single_atom_caption(scene: &Scene) -> String {
+    let atom = &scene.atoms[0];
+    let (n, l, m) = (atom.orbital.n, atom.orbital.l, atom.orbital.m);
+
+    // Pull the element's friendly name; fall back to `Z=<n>` so a
+    // future element-id outside the table still produces a line that
+    // makes sense rather than crashing the UI.
+    let name = element_data(atom.element)
+        .map(|e| e.name.to_string())
+        .unwrap_or_else(|| format!("Element Z={}", atom.element.0));
+
+    // Spectroscopic name. Use the cartesian label if we have one,
+    // otherwise just `<n><letter>`.
+    let orbital_name = match orbital_label(l, m) {
+        Some(label) => format!("{}{}", n, label),
+        None => format!("{}{}", n, l_letter(l)),
+    };
+
+    let description = orbital_description(n, l)
+        .map(|d| d.to_string())
+        // Generic fallback for orbitals outside the hand-written table.
+        // Avoid the "a/an" article problem by phrasing as a noun phrase:
+        // "<element> <n><letter> orbital." reads naturally for any (n, l).
+        .unwrap_or_else(|| format!("{} orbital.", orbital_name));
+
+    format!("{} {} \u{2014} {}", name, orbital_name, description)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -131,5 +267,170 @@ mod tests {
         assert_eq!(element_data(ElementId(18)).unwrap().symbol, "Ar");
         assert!(element_data(ElementId(0)).is_none());
         assert!(element_data(ElementId(19)).is_none());
+    }
+
+    // ─── caption / orbital_label / orbital_description ────────────────
+
+    use crate::scene::{Atom, Orbital, Scene, View};
+
+    fn scene_single(z: u32, n: u32, l: u32, m: i32) -> Scene {
+        Scene {
+            atoms: vec![Atom {
+                element: ElementId(z),
+                position: [0.0, 0.0, 0.0],
+                orbital: Orbital { n, l, m },
+            }],
+            view: View::default(),
+        }
+    }
+
+    #[test]
+    fn orbital_label_matches_standard_real_harmonic_table() {
+        // s shell.
+        assert_eq!(orbital_label(0, 0), Some("s"));
+        // p shell: real spherical harmonics conventionally map
+        // m=-1 → y, m=0 → z, m=+1 → x.
+        assert_eq!(orbital_label(1, -1), Some("p_y"));
+        assert_eq!(orbital_label(1, 0), Some("p_z"));
+        assert_eq!(orbital_label(1, 1), Some("p_x"));
+        // d shell — full cloverleaf set.
+        assert_eq!(orbital_label(2, -2), Some("d_xy"));
+        assert_eq!(orbital_label(2, -1), Some("d_yz"));
+        assert_eq!(orbital_label(2, 0), Some("d_z\u{00B2}"));
+        assert_eq!(orbital_label(2, 1), Some("d_xz"));
+        assert_eq!(orbital_label(2, 2), Some("d_x\u{00B2}-y\u{00B2}"));
+    }
+
+    #[test]
+    fn orbital_label_returns_none_for_uncovered_combos() {
+        // No `f_*` cartesian labels in the table — slice 1's coverage
+        // stops at d. The caller falls back to "<n><letter>".
+        assert_eq!(orbital_label(3, 0), None);
+        assert_eq!(orbital_label(3, 1), None);
+        assert_eq!(orbital_label(3, -3), None);
+        // And bogus (l, m) pairs that violate |m| <= l also fail
+        // gracefully — orbital_label is pure-lookup and doesn't validate.
+        assert_eq!(orbital_label(1, 5), None);
+    }
+
+    #[test]
+    fn orbital_description_covers_at_least_six_subshells() {
+        // Acceptance criterion: 6+ hand-written descriptions.
+        let covered: &[(u32, u32)] =
+            &[(1, 0), (2, 0), (2, 1), (3, 0), (3, 1), (3, 2)];
+        for (n, l) in covered {
+            assert!(
+                orbital_description(*n, *l).is_some(),
+                "expected description for (n={}, l={})",
+                n,
+                l
+            );
+        }
+    }
+
+    #[test]
+    fn orbital_description_is_none_for_unknown_combinations() {
+        // Higher-n combinations have no hand-written description and
+        // must fall through to the generic fallback in `caption`.
+        assert!(orbital_description(4, 3).is_none());
+        assert!(orbital_description(5, 2).is_none());
+    }
+
+    #[test]
+    fn caption_hydrogen_1s_uses_named_description() {
+        // Hydrogen 1s — the canonical "what is this" intro line. Must
+        // include the element name, the spectroscopic label, and the
+        // ground-state phrase verbatim.
+        let s = scene_single(1, 1, 0, 0);
+        let c = caption(&s);
+        assert!(c.starts_with("Hydrogen 1s"), "got: {}", c);
+        assert!(c.contains("ground-state"), "got: {}", c);
+        // Em-dash separator between the name and the description.
+        assert!(c.contains('\u{2014}'), "expected em-dash in: {}", c);
+    }
+
+    #[test]
+    fn caption_neon_2p_z_uses_cartesian_label() {
+        let s = scene_single(10, 2, 1, 0);
+        let c = caption(&s);
+        assert!(c.starts_with("Neon 2p_z"), "got: {}", c);
+        // 2p subshell description hits the dumbbell wording.
+        assert!(c.contains("dumbbell"), "got: {}", c);
+    }
+
+    #[test]
+    fn caption_carbon_2p_x_uses_cartesian_label() {
+        let s = scene_single(6, 2, 1, 1);
+        let c = caption(&s);
+        assert!(c.starts_with("Carbon 2p_x"), "got: {}", c);
+    }
+
+    #[test]
+    fn caption_unknown_orbital_combination_falls_back_gracefully() {
+        // Carbon 4f — no orbital_label entry, no orbital_description entry.
+        // Caption must not panic and must produce a readable line that
+        // includes both the element and the bare "<n><letter>" form.
+        let s = scene_single(6, 4, 3, 0);
+        let c = caption(&s);
+        assert!(c.starts_with("Carbon 4f"), "got: {}", c);
+        // Generic fallback ends with "orbital." — the description table
+        // didn't hit, so the format!() path kicks in.
+        assert!(c.contains("orbital."), "got: {}", c);
+    }
+
+    #[test]
+    fn caption_unknown_element_does_not_panic() {
+        // Z=99 isn't in our table; caption should fall back to "Element Z=99"
+        // rather than crashing or producing an empty string.
+        let s = scene_single(99, 1, 0, 0);
+        let c = caption(&s);
+        assert!(c.contains("Z=99"), "got: {}", c);
+    }
+
+    #[test]
+    fn caption_empty_scene_is_non_broken() {
+        let s = Scene { atoms: vec![], view: View::default() };
+        assert_eq!(caption(&s), "No atoms");
+    }
+
+    /// Diagnostic helper — `cargo test print_caption_samples -- --ignored
+    /// --nocapture` prints representative captions for manual review.
+    /// Not part of the normal CI run; kept to make it easy to eyeball
+    /// the format after future edits to the description table.
+    #[test]
+    #[ignore]
+    fn print_caption_samples() {
+        let cases = [
+            (1, 1, 0, 0),
+            (10, 2, 1, 0),
+            (6, 2, 1, 1),
+            (8, 2, 1, -1),
+            (18, 3, 2, 0),
+            (6, 4, 3, 0),
+        ];
+        for (z, n, l, m) in cases {
+            let s = scene_single(z, n, l, m);
+            eprintln!("Z={} n={} l={} m={:+}: {}", z, n, l, m, caption(&s));
+        }
+    }
+
+    #[test]
+    fn caption_multi_atom_scene_falls_back_to_count() {
+        let s = Scene {
+            atoms: vec![
+                Atom {
+                    element: ElementId(1),
+                    position: [0.0; 3],
+                    orbital: Orbital { n: 1, l: 0, m: 0 },
+                },
+                Atom {
+                    element: ElementId(1),
+                    position: [1.0, 0.0, 0.0],
+                    orbital: Orbital { n: 1, l: 0, m: 0 },
+                },
+            ],
+            view: View::default(),
+        };
+        assert_eq!(caption(&s), "2 atoms");
     }
 }

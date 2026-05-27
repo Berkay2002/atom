@@ -2,7 +2,9 @@
 //! to the top-left of the viewport. Returns `true` from `panel()` if a parameter
 //! that requires a volume rebake changed.
 
-use crate::ui_tokens::{EDGE_INSET, LABEL_SIZE, TEXT_TERTIARY};
+use atom_core::scene::{Atom, ElementId, Orbital, Scene, View};
+
+use crate::ui_tokens::{BODY_SIZE, EDGE_INSET, LABEL_SIZE, TEXT_SECONDARY, TEXT_TERTIARY};
 use crate::ui_widgets::{
     action_button, card_frame, chevron_button, chip_strip, eye_toggle, glass_slider, hud_pill,
     preset_strip, scale_readout, swatch_row, toggle_switch,
@@ -134,6 +136,27 @@ pub fn panel(ctx: &egui::Context, s: &mut UiState) -> bool {
                 let render_expanded = s.card_expanded && !s.auto_collapsed;
                 if render_expanded {
                 let old = (s.element_z, s.n, s.l, s.m, s.use_bare_z, s.resolution);
+
+                // "What am I looking at" caption (issue 06). Sits at the top
+                // of the card so the visitor immediately reads the plain-
+                // language name of the current orbital before they touch any
+                // chip. Built from atom-core::caption so the desktop and
+                // web targets stay byte-identical on the string they show.
+                let scene = Scene {
+                    atoms: vec![Atom {
+                        element: ElementId(s.element_z),
+                        position: [0.0, 0.0, 0.0],
+                        orbital: Orbital { n: s.n, l: s.l, m: s.m },
+                    }],
+                    view: View::default(),
+                };
+                let caption = atom_core::caption(&scene);
+                ui.label(
+                    egui::RichText::new(caption)
+                        .size(BODY_SIZE)
+                        .color(TEXT_SECONDARY),
+                );
+                ui.add_space(6.0);
 
                 // Element picker — functional, unstyled per issue 02.
                 // 18 chips laid out in three 6-wide rows so each chip
