@@ -27,12 +27,27 @@ const RAYMARCH_PARAMS = { k: 5, exposure: 1, steps: 256 };
 export type AtomCanvasProps = {
   params: OrbitalParams;
   colormap: ColormapName;
+  autoRotate: boolean;
 };
 
-export default function AtomCanvas({ params, colormap }: AtomCanvasProps) {
+// One full revolution every 12 seconds = 2π / 12s ≈ 0.5236 rad/s. We
+// integrate against per-frame `dt` rather than adding a fixed constant
+// each tick so the rotation rate stays consistent across frame-rate
+// drops (a hitch makes the spin slow down for one frame, not skip).
+const AUTO_ROTATE_RAD_PER_SEC = (2 * Math.PI) / 12;
+
+export default function AtomCanvas({ params, colormap, autoRotate }: AtomCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const rendererRef = useRef<Raymarcher | null>(null);
   const cameraRef = useRef<OrbitCamera | null>(null);
+  // Read by the rAF tick. Updating the ref in an effect (rather than
+  // during render) keeps React 19's strict ref rules happy *and* avoids
+  // tearing down + restarting the renderer just because the auto-rotate
+  // toggle flipped. One frame of lag on the toggle is invisible.
+  const autoRotateRef = useRef(autoRotate);
+  useEffect(() => {
+    autoRotateRef.current = autoRotate;
+  }, [autoRotate]);
 
   // One BakeClient for the lifetime of this component instance. The
   // factory creates a fresh module Worker per requestBake — cancellation
@@ -96,9 +111,20 @@ export default function AtomCanvas({ params, colormap }: AtomCanvasProps) {
 
     // Reused per-frame to avoid allocating a fresh Float32Array every tick.
     const invVP = mat4.create();
+    // `null` on the first frame so the initial dt is zero — keeps the
+    // azimuth from jumping if `autoRotate` happens to be on at mount.
+    let lastTs: number | null = null;
 
-    const tick = () => {
+    const tick = (ts: number) => {
       if (disposed) return;
+      const dt = lastTs == null ? 0 : Math.max(0, (ts - lastTs) / 1000);
+      lastTs = ts;
+      if (autoRotateRef.current) {
+        // Pointer drag mutates `camera.azimuth` synchronously between
+        // ticks; adding here composes naturally — drag accumulates,
+        // then the next tick spins on from wherever the user left off.
+        camera.azimuth += AUTO_ROTATE_RAD_PER_SEC * dt;
+      }
       const vp = camera.viewProj();
       mat4.invert(invVP, vp);
       renderer.setCamera({

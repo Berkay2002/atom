@@ -37,6 +37,8 @@ export type ControlsProps = {
   onChange: (next: OrbitalParams) => void;
   colormap: ColormapName;
   onColormapChange: (next: ColormapName) => void;
+  autoRotate: boolean;
+  onAutoRotateChange: (next: boolean) => void;
 };
 
 const N_MIN = 1;
@@ -209,6 +211,7 @@ const LABEL_TOOLTIPS: Record<string, string> = {
   m: 'Magnetic quantum number — orientation of the orbital in space (−l ≤ m ≤ +l)',
   colormap: 'Color palette applied to the density',
   presets: 'Common named orbitals',
+  autoRotate: 'Spin the camera around the orbital (~12s per revolution). Drag still works on top.',
 };
 
 const N_TOOLTIPS: Record<number, string> = {
@@ -330,6 +333,80 @@ function ColormapPicker({ value, onPick }: ColormapPickerProps) {
   );
 }
 
+// Compact toggle switch styled to match the glass card: a small pill
+// track with a sliding knob. Mirrors `toggle_switch` in
+// `ui_widgets.rs` (~26×14 px desktop) — the web version is sized for a
+// slightly larger touch target.
+const TOGGLE_W = 30;
+const TOGGLE_H = 16;
+const TOGGLE_PAD = 2;
+
+const toggleRowStyle: CSSProperties = {
+  ...rowStyle,
+  flexDirection: 'row',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  gap: 8,
+};
+
+function toggleTrackStyle(on: boolean): CSSProperties {
+  return {
+    position: 'relative',
+    width: TOGGLE_W,
+    height: TOGGLE_H,
+    borderRadius: TOGGLE_H / 2,
+    background: on ? TOKEN.accentDim : TOKEN.surfaceMute,
+    borderStyle: 'solid',
+    borderWidth: 1,
+    borderColor: on ? TOKEN.accent : TOKEN.border,
+    transition: 'background 120ms ease, border-color 120ms ease',
+    cursor: 'pointer',
+    flexShrink: 0,
+    padding: 0,
+  };
+}
+
+function toggleKnobStyle(on: boolean): CSSProperties {
+  const knobSize = TOGGLE_H - TOGGLE_PAD * 2 - 2; // -2 for the 1px border on each side
+  return {
+    position: 'absolute',
+    top: TOGGLE_PAD,
+    left: on ? TOGGLE_W - knobSize - TOGGLE_PAD - 2 : TOGGLE_PAD,
+    width: knobSize,
+    height: knobSize,
+    borderRadius: '50%',
+    background: on ? TOKEN.accent : TOKEN.textPrimary,
+    transition: 'left 140ms ease, background 120ms ease',
+  };
+}
+
+type ToggleRowProps = {
+  label: string;
+  labelTooltip?: string;
+  value: boolean;
+  onChange: (next: boolean) => void;
+};
+
+function ToggleRow({ label, labelTooltip, value, onChange }: ToggleRowProps) {
+  return (
+    <div style={toggleRowStyle}>
+      <span style={labelStyle} title={labelTooltip}>
+        {label}
+      </span>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={value}
+        aria-label={label}
+        onClick={() => onChange(!value)}
+        style={toggleTrackStyle(value)}
+      >
+        <span style={toggleKnobStyle(value)} />
+      </button>
+    </div>
+  );
+}
+
 type PresetStripProps = {
   value: OrbitalParams;
   onPick: (p: Preset) => void;
@@ -377,6 +454,8 @@ export default function Controls({
   onChange,
   colormap,
   onColormapChange,
+  autoRotate,
+  onAutoRotateChange,
 }: ControlsProps) {
   // Keep pointer events from bubbling into the canvas drag/zoom handlers.
   const stop = (e: PointerEvent<HTMLDivElement>) => {
@@ -432,6 +511,13 @@ export default function Controls({
       <PresetStrip
         value={value}
         onPick={(p) => emit(p.n, p.l, p.m)}
+      />
+      <hr style={dividerStyle} />
+      <ToggleRow
+        label="auto-rotate"
+        labelTooltip={LABEL_TOOLTIPS.autoRotate}
+        value={autoRotate}
+        onChange={onAutoRotateChange}
       />
     </div>
   );
