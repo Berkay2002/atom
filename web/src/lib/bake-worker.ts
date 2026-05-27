@@ -7,15 +7,17 @@
 // Protocol (single-shot per worker — cancellation = terminate + respawn,
 // orchestrated by `BakeClient`):
 //
-//   main -> worker:  { type: 'requestBake', scene: { orbital: { n, l, m } }, res }
+//   main -> worker:  { type: 'requestBake',
+//                      scene: { elementZ, orbital: { n, l, m },
+//                               view: { useBareZ } }, res }
 //   worker -> main:  { type: 'bake-result', data: Float32Array,
 //                      halfExtent: number, peak: number }
 //
-// Slice 1 of the multi-atom direction reshapes the Rust core around a
-// `Scene` of `Atom`s, but only ever uses a single hydrogen atom at the
-// origin. The JS↔WASM boundary stays thin (no JSON serde) — we mirror
-// the Scene shape only in the message envelope so future slices can grow
-// it without another protocol rename.
+// Issue 02 of the multi-atom direction carries the element atomic number
+// and the bare-Z toggle across the boundary. The JS↔WASM boundary is
+// still a thin parameter tuple (no JSON serde) — we mirror the Scene
+// shape only in the message envelope so future multi-atom slices can
+// grow it without another protocol rename.
 //
 // The `data` Float32Array returned by atom-core's BakeResult is a *view*
 // into wasm linear memory; sending it directly would alias memory that
@@ -25,7 +27,11 @@
 import init, { bake_scene } from '../../wasm/atom_core.js';
 
 export type SceneRequest = {
+  /** Atomic number of the selected element (1..=18). */
+  elementZ: number;
   orbital: { n: number; l: number; m: number };
+  /** View flags. `useBareZ` overrides Slater shielding with the bare atomic number. */
+  view: { useBareZ: boolean };
 };
 
 export type BakeRequest = {
@@ -56,7 +62,9 @@ ctx.addEventListener('message', async (ev: MessageEvent<BakeRequest>) => {
   await ensureReady();
 
   const { n, l, m } = req.scene.orbital;
-  const result = bake_scene(n, l, m, req.res);
+  const { elementZ } = req.scene;
+  const { useBareZ } = req.scene.view;
+  const result = bake_scene(elementZ, n, l, m, useBareZ, req.res);
 
   // Copy the wasm-memory view into an owned Float32Array before posting,
   // then free the Rust-side BakeResult.

@@ -19,9 +19,13 @@
 import type { BakeRequest, BakeResult } from '../bake-worker';
 
 export type BakeParams = {
+  /** Atomic number of the selected element (1..=18 for H..Ar). */
+  elementZ: number;
   n: number;
   l: number;
   m: number;
+  /** Override Slater shielding with the bare atomic number. */
+  useBareZ: boolean;
   res: number;
 };
 
@@ -101,7 +105,11 @@ export class BakeClient implements IBakeClient {
 
       const req: BakeRequest = {
         type: 'requestBake',
-        scene: { orbital: { n: params.n, l: params.l, m: params.m } },
+        scene: {
+          elementZ: params.elementZ,
+          orbital: { n: params.n, l: params.l, m: params.m },
+          view: { useBareZ: params.useBareZ },
+        },
         res: params.res,
       };
       worker.postMessage(req);

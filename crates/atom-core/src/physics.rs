@@ -57,13 +57,23 @@ pub fn legendre(l: u32, m: u32, x: f64) -> f64 {
     p_curr
 }
 
-/// Radial part of hydrogen wavefunction R_nl(r), in atomic units (a₀ = 1, Z = 1).
-/// R_nl(r) = sqrt((2/n)³ · (n-l-1)!/(2n·(n+l)!)) · e^(-ρ/2) · ρ^l · L_{n-l-1}^{2l+1}(ρ),  ρ = 2r/n
-pub fn radial(n: u32, l: u32, r: f64) -> f64 {
+/// Radial part of a hydrogen-*like* wavefunction `R_nl(r)`, in atomic units
+/// (`a₀ = 1`). The effective nuclear charge `z_eff` substitutes for `Z` in
+/// the standard hydrogen formula:
+///
+/// ```text
+///   R_nl(r) = sqrt((2·z_eff/n)³ · (n-l-1)!/(2n·(n+l)!))
+///             · e^(-ρ/2) · ρ^l · L_{n-l-1}^{2l+1}(ρ),    ρ = 2·z_eff·r/n
+/// ```
+///
+/// Bare hydrogen is the special case `z_eff = 1.0`, which collapses to the
+/// original formula.
+pub fn radial(n: u32, l: u32, r: f64, z_eff: f64) -> f64 {
     debug_assert!(l < n, "l must satisfy l < n");
     let n_f = n as f64;
-    let rho = 2.0 * r / n_f;
-    let norm_sq = (2.0 / n_f).powi(3) * factorial(n - l - 1) / (2.0 * n_f * factorial(n + l));
+    let rho = 2.0 * z_eff * r / n_f;
+    let norm_sq =
+        (2.0 * z_eff / n_f).powi(3) * factorial(n - l - 1) / (2.0 * n_f * factorial(n + l));
     let norm = norm_sq.sqrt();
     let lag = laguerre(n - l - 1, 2 * l + 1, rho);
     norm * (-rho / 2.0).exp() * rho.powi(l as i32) * lag
@@ -73,14 +83,18 @@ fn factorial(k: u32) -> f64 {
     (1..=k).fold(1.0_f64, |acc, i| acc * i as f64)
 }
 
-/// |ψ_nlm(x, y, z)|² in atomic units. Coordinates are cartesian, in a₀.
-pub fn psi_squared(n: u32, l: u32, m: i32, x: f64, y: f64, z: f64) -> f64 {
+/// `|ψ_nlm(x, y, z)|²` for a hydrogen-like atom with effective nuclear
+/// charge `z_eff`, in atomic units. Coordinates are cartesian, in `a₀`.
+///
+/// Element-agnostic: callers (e.g. `volume::bake_scene`) resolve `z_eff`
+/// via Slater's rules or the bare-Z override before invoking.
+pub fn psi_squared(n: u32, l: u32, m: i32, z_eff: f64, x: f64, y: f64, z: f64) -> f64 {
     let r = (x * x + y * y + z * z).sqrt();
     if r == 0.0 {
         // Only s-orbitals (l=0) have nonzero amplitude at the origin.
         // For l>0, ρ^l in R_nl forces R(0)=0.
         if l == 0 {
-            let rad = radial(n, 0, 0.0);
+            let rad = radial(n, 0, 0.0, z_eff);
             let y0 = real_y(0, 0, 0.0, 0.0);
             let psi = rad * y0;
             return psi * psi;
@@ -89,7 +103,7 @@ pub fn psi_squared(n: u32, l: u32, m: i32, x: f64, y: f64, z: f64) -> f64 {
     }
     let theta = (z / r).clamp(-1.0, 1.0).acos();
     let phi = y.atan2(x);
-    let rad = radial(n, l, r);
+    let rad = radial(n, l, r, z_eff);
     let ylm = real_y(l, m, theta, phi);
     let psi = rad * ylm;
     psi * psi
@@ -164,10 +178,33 @@ mod tests {
     #[test]
     fn radial_known_values() {
         // R_{1,0}(r) = 2 e^(-r); at r=0 → 2
-        approx_rel(radial(1, 0, 0.0), 2.0, 1e-12);
-        approx_rel(radial(1, 0, 1.0), 2.0 * (-1.0_f64).exp(), 1e-12);
+        approx_rel(radial(1, 0, 0.0, 1.0), 2.0, 1e-12);
+        approx_rel(radial(1, 0, 1.0, 1.0), 2.0 * (-1.0_f64).exp(), 1e-12);
         // R_{2,0}(r) = (1/(2·sqrt(2))) · (2-r) · e^(-r/2); at r=0 → 1/sqrt(2)
-        approx_rel(radial(2, 0, 0.0), 1.0 / 2_f64.sqrt(), 1e-12);
+        approx_rel(radial(2, 0, 0.0, 1.0), 1.0 / 2_f64.sqrt(), 1e-12);
+    }
+
+    #[test]
+    fn radial_he_plus_z_eff_2() {
+        // He⁺ (one electron, Z=2): R_{1,0}(r) = 2 · Z^(3/2) · exp(-Z·r).
+        // Scipy cross-check values (Z=2):
+        //   r=0   → 2 · 2^(3/2)              = 5.6568542494923806...
+        //   r=0.5 → 2 · 2^(3/2) · exp(-1)    = 2.080816862637854...
+        //   r=1.0 → 2 · 2^(3/2) · exp(-2)    = 0.7656519101110693...
+        let z = 2.0;
+        approx_rel(radial(1, 0, 0.0, z), 2.0 * z.powf(1.5), 1e-12);
+        approx_rel(radial(1, 0, 0.5, z), 2.0 * z.powf(1.5) * (-1.0_f64).exp(), 1e-12);
+        approx_rel(radial(1, 0, 1.0, z), 2.0 * z.powf(1.5) * (-2.0_f64).exp(), 1e-12);
+    }
+
+    #[test]
+    fn radial_he_plus_2p_z_eff_2() {
+        // He⁺ 2p (Z=2): R_{2,1}(r) = sqrt(Z³/24) · Z·r · exp(-Z·r/2).
+        //   At r=1, Z=2: sqrt(8/24) · 2 · exp(-1) = 2/sqrt(3) · exp(-1)
+        //                                          ≈ 0.4247906...
+        let z = 2.0_f64;
+        let expected = 2.0 / 3.0_f64.sqrt() * (-1.0_f64).exp();
+        approx_rel(radial(2, 1, 1.0, z), expected, 1e-12);
     }
 
     #[test]
@@ -188,17 +225,28 @@ mod tests {
     fn psi_squared_at_origin_1s() {
         use std::f64::consts::PI;
         // ψ_{1,0,0}(0) = 1/sqrt(π) → |ψ|² = 1/π
-        approx_rel(psi_squared(1, 0, 0, 0.0, 0.0, 0.0), 1.0 / PI, 1e-12);
+        approx_rel(psi_squared(1, 0, 0, 1.0, 0.0, 0.0, 0.0), 1.0 / PI, 1e-12);
     }
 
     #[test]
     fn psi_squared_at_origin_2s() {
         use std::f64::consts::PI;
         // ψ_{2,0,0}(0) = 1/(2·sqrt(2π)) → |ψ|² = 1/(8π)
-        approx_rel(psi_squared(2, 0, 0, 0.0, 0.0, 0.0), 1.0 / (8.0 * PI), 1e-12);
+        approx_rel(psi_squared(2, 0, 0, 1.0, 0.0, 0.0, 0.0), 1.0 / (8.0 * PI), 1e-12);
     }
 
-    fn integrate_psi_squared(n: u32, l: u32, m: i32, half_extent: f64, res: usize) -> f64 {
+    #[test]
+    fn psi_squared_he_plus_at_origin() {
+        use std::f64::consts::PI;
+        // He⁺ 1s: ψ(0) = sqrt(Z³/π). |ψ(0)|² = Z³/π. For Z=2: 8/π.
+        approx_rel(
+            psi_squared(1, 0, 0, 2.0, 0.0, 0.0, 0.0),
+            8.0 / PI,
+            1e-12,
+        );
+    }
+
+    fn integrate_psi_squared(n: u32, l: u32, m: i32, z_eff: f64, half_extent: f64, res: usize) -> f64 {
         let step = 2.0 * half_extent / res as f64;
         let dv = step.powi(3);
         let mut acc = 0.0_f64;
@@ -208,7 +256,7 @@ mod tests {
                 let y = -half_extent + (j as f64 + 0.5) * step;
                 for k in 0..res {
                     let z = -half_extent + (k as f64 + 0.5) * step;
-                    acc += psi_squared(n, l, m, x, y, z) * dv;
+                    acc += psi_squared(n, l, m, z_eff, x, y, z) * dv;
                 }
             }
         }
@@ -217,13 +265,20 @@ mod tests {
 
     #[test]
     fn psi_squared_normalizes_1s() {
-        let integral = integrate_psi_squared(1, 0, 0, 8.0, 64);
+        let integral = integrate_psi_squared(1, 0, 0, 1.0, 8.0, 64);
         approx_rel(integral, 1.0, 0.05);
     }
 
     #[test]
     fn psi_squared_normalizes_2p() {
-        let integral = integrate_psi_squared(2, 1, 0, 15.0, 64);
+        let integral = integrate_psi_squared(2, 1, 0, 1.0, 15.0, 64);
         approx_rel(integral, 1.0, 0.10);
+    }
+
+    #[test]
+    fn psi_squared_he_plus_1s_normalizes() {
+        // He⁺ 1s with Z=2 is half the size; tighter box, still integrates to 1.
+        let integral = integrate_psi_squared(1, 0, 0, 2.0, 4.0, 64);
+        approx_rel(integral, 1.0, 0.05);
     }
 }

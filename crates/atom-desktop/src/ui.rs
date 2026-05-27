@@ -9,6 +9,10 @@ use crate::ui_widgets::{
 };
 
 pub struct UiState {
+    /// Atomic number (1..=18) of the selected element. Drives the per-atom
+    /// `z_eff` resolution in `bake_scene`. Issue 02 ships a functional but
+    /// unstyled picker; issue 05 will polish it into a periodic-table grid.
+    pub element_z: u32,
     pub n: u32,
     pub l: u32,
     pub m: i32,
@@ -39,6 +43,7 @@ pub struct UiState {
 impl Default for UiState {
     fn default() -> Self {
         Self {
+            element_z: 1,
             n: 3,
             l: 2,
             m: 1,
@@ -121,7 +126,44 @@ pub fn panel(ctx: &egui::Context, s: &mut UiState) -> bool {
                 });
                 let render_expanded = s.card_expanded && !s.auto_collapsed;
                 if render_expanded {
-                let old = (s.n, s.l, s.m, s.resolution);
+                let old = (s.element_z, s.n, s.l, s.m, s.resolution);
+
+                // Element picker — functional, unstyled per issue 02.
+                // 18 chips laid out in three 6-wide rows so each chip
+                // stays clickable at the card's 320px width. Issue 05
+                // will replace this with a polished periodic-table grid.
+                ui.label(
+                    egui::RichText::new("ELEMENT")
+                        .size(LABEL_SIZE)
+                        .color(TEXT_TERTIARY),
+                );
+                const ELEMENT_LABELS: [&str; 18] = [
+                    "H", "He", "Li", "Be", "B", "C",
+                    "N", "O", "F", "Ne", "Na", "Mg",
+                    "Al", "Si", "P", "S", "Cl", "Ar",
+                ];
+                let element_selected = (s.element_z as usize).saturating_sub(1).min(17);
+                for row in 0..3 {
+                    let lo = row * 6;
+                    let hi = lo + 6;
+                    let labels: &[&str] = &ELEMENT_LABELS[lo..hi];
+                    let enabled = [true; 6];
+                    let sel_in_row = if element_selected >= lo && element_selected < hi {
+                        element_selected - lo
+                    } else {
+                        usize::MAX // not in this row → render none selected
+                    };
+                    let salt = format!("element-row-{row}");
+                    if let Some(idx) = chip_strip(ui, labels, sel_in_row, &enabled, &salt) {
+                        s.element_z = (lo + idx) as u32 + 1;
+                        // (n, l, m) constraints are hydrogen-like and
+                        // universal across elements (l < n, |m| <= l), so
+                        // no element-driven re-clamp is needed here. The
+                        // re-bake fires below via the `old` comparison.
+                    }
+                }
+
+                ui.separator();
 
                 // Group the QUANTUM NUMBERS label + three chip rows with a
                 // slightly larger vertical rhythm so the rows breathe.
@@ -231,7 +273,7 @@ pub fn panel(ctx: &egui::Context, s: &mut UiState) -> bool {
                     }
                 });
 
-                if (s.n, s.l, s.m, s.resolution) != old {
+                if (s.element_z, s.n, s.l, s.m, s.resolution) != old {
                     needs_rebake = true;
                 }
                 }

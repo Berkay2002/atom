@@ -25,9 +25,13 @@ const RES = 96;
 const RAYMARCH_PARAMS = { k: 5, exposure: 1, steps: 256 };
 
 export type AtomCanvasProps = {
+  /** Atomic number of the selected element (1..=18). */
+  elementZ: number;
   params: OrbitalParams;
   colormap: ColormapName;
   autoRotate: boolean;
+  /** Override Slater shielding with the bare atomic number (issue 03). */
+  useBareZ?: boolean;
 };
 
 // One full revolution every 12 seconds = 2π / 12s ≈ 0.5236 rad/s. We
@@ -36,7 +40,13 @@ export type AtomCanvasProps = {
 // drops (a hitch makes the spin slow down for one frame, not skip).
 const AUTO_ROTATE_RAD_PER_SEC = (2 * Math.PI) / 12;
 
-export default function AtomCanvas({ params, colormap, autoRotate }: AtomCanvasProps) {
+export default function AtomCanvas({
+  elementZ,
+  params,
+  colormap,
+  autoRotate,
+  useBareZ = false,
+}: AtomCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const rendererRef = useRef<Raymarcher | null>(null);
   const cameraRef = useRef<OrbitCamera | null>(null);
@@ -64,8 +74,15 @@ export default function AtomCanvas({ params, colormap, autoRotate }: AtomCanvasP
   );
 
   const bakeParams = useMemo(
-    () => ({ n: params.n, l: params.l, m: params.m, res: RES }),
-    [params.n, params.l, params.m],
+    () => ({
+      elementZ,
+      n: params.n,
+      l: params.l,
+      m: params.m,
+      useBareZ,
+      res: RES,
+    }),
+    [elementZ, params.n, params.l, params.m, useBareZ],
   );
   const { volume, baking } = useDebouncedBake(bakeParams, client);
 

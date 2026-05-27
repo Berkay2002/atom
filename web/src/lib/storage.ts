@@ -15,6 +15,8 @@ import { COLORMAP_ORDER, type ColormapName } from '@/lib/colormaps';
 export const STORAGE_KEY = 'atom-demo-state';
 
 export type StoredState = {
+  /** Atomic number of the selected element (1..=18). */
+  elementZ: number;
   n: number;
   l: number;
   m: number;
@@ -27,6 +29,7 @@ export type StoredState = {
 // canonical fallback. Both `parseStoredState` and `loadStoredState`
 // return these when no valid stored blob is found.
 export const DEFAULT_STORED_STATE: StoredState = {
+  elementZ: 1, // Hydrogen — the bare-Z baseline everyone has seen before.
   n: 3,
   l: 2,
   m: 1,
@@ -34,6 +37,15 @@ export const DEFAULT_STORED_STATE: StoredState = {
   autoRotate: false,
   hudVisible: true,
 };
+
+const ELEMENT_Z_MIN = 1;
+const ELEMENT_Z_MAX = 18;
+
+function clampElementZ(z: unknown): number {
+  if (!Number.isFinite(z)) return DEFAULT_STORED_STATE.elementZ;
+  const zi = Math.round(z as number);
+  return Math.min(ELEMENT_Z_MAX, Math.max(ELEMENT_Z_MIN, zi));
+}
 
 const N_MIN = 1;
 const N_MAX = 6;
@@ -85,6 +97,7 @@ export function parseStoredState(raw: string | null | undefined): StoredState | 
 
   const { n, l, m } = clampNlm(o.n, o.l, o.m);
   return {
+    elementZ: clampElementZ(o.elementZ),
     n,
     l,
     m,

@@ -10,18 +10,45 @@
 use rayon::prelude::*;
 
 use crate::scene::{Atom, Orbital, Scene};
+use crate::slater::z_eff;
 
 /// Half-edge of the cubic bounding box for an orbital with principal quantum
 /// number `n`. Returned in atomic units (a₀).
+///
+/// Bare-hydrogen sizing (`z_eff = 1`): `3·n²·a₀`. For an arbitrary
+/// effective charge, the orbital shrinks as `1/z_eff` (the natural length
+/// scale of a hydrogen-like atom is `n²·a₀/z_eff`), so the box scales the
+/// same way.
 pub fn box_extent(n: u32) -> f64 {
-    3.0 * (n as f64).powi(2)
+    box_extent_zeff(n, 1.0)
 }
 
-/// Per-atom orbital "radius" used by the adaptive box sizing. Today this is
-/// just `box_extent(orbital.n)`; once `z_eff` lands (issue 02) it will
-/// shrink with increasing nuclear charge.
-fn atom_radius(orbital: Orbital) -> f64 {
-    box_extent(orbital.n)
+/// Half-edge for an orbital with principal `n` and effective nuclear
+/// charge `z_eff`. `box_extent(n) == box_extent_zeff(n, 1.0)`.
+pub fn box_extent_zeff(n: u32, z_eff: f64) -> f64 {
+    let z = z_eff.max(0.1);
+    3.0 * (n as f64).powi(2) / z
+}
+
+/// Per-atom orbital "radius" used by the adaptive box sizing. Scales with
+/// `n²` and inversely with the resolved effective charge so high-Z
+/// orbitals tighten in.
+fn atom_radius(orbital: Orbital, z_eff: f64) -> f64 {
+    box_extent_zeff(orbital.n, z_eff)
+}
+
+/// Resolve the effective nuclear charge for an atom under the scene's view
+/// settings. When `use_bare_z` is true the override returns the element's
+/// bare atomic number `Z` (no Slater shielding); otherwise it delegates to
+/// `slater::z_eff`.
+fn resolve_z_eff(atom: &Atom, use_bare_z: bool) -> f64 {
+    if use_bare_z {
+        // Bare atomic number. Falls back to 1.0 for unknown elements so
+        // the bake never produces NaN / a zero-size box.
+        let z = atom.element.0.max(1) as f64;
+        return z;
+    }
+    z_eff(atom.element, atom.orbital.n, atom.orbital.l)
 }
 
 /// Baked volume: peak-normalized density on a cubic grid centered at the
@@ -43,23 +70,37 @@ pub struct Volume {
 /// the whole grid is peak-normalized to `[0, 1]`. The absolute peak is
 /// preserved in `Volume::peak`.
 ///
-/// Hydrogen-only for slice 1: `z_eff` is hard-coded to `1.0` (bare hydrogen).
+/// Per atom, `z_eff` is resolved from the element + orbital via Slater's
+/// rules, unless `scene.view.use_bare_z` is set — in which case the bare
+/// atomic number `Z` is used instead.
 pub fn bake_scene(scene: &Scene, res: usize) -> Volume {
+    let use_bare_z = scene.view.use_bare_z;
+
+    // Precompute per-atom z_eff so the (parallel) sample closure doesn't
+    // redo Slater lookups for every voxel.
+    let z_effs: Vec<f64> = scene
+        .atoms
+        .iter()
+        .map(|a| resolve_z_eff(a, use_bare_z))
+        .collect();
+
     let half_extent = scene
         .atoms
         .iter()
-        .map(|a| {
+        .zip(z_effs.iter())
+        .map(|(a, &z)| {
             let r = (a.position[0] * a.position[0]
                 + a.position[1] * a.position[1]
                 + a.position[2] * a.position[2])
                 .sqrt();
-            r + atom_radius(a.orbital)
+            r + atom_radius(a.orbital, z)
         })
         .fold(0.0_f64, f64::max);
     let step = 2.0 * half_extent / res as f64;
     let total = res * res * res;
 
     let atoms: &[Atom] = &scene.atoms;
+    let z_effs_slice: &[f64] = &z_effs;
     let sample = |idx: usize| -> f64 {
         let i = idx % res;
         let j = (idx / res) % res;
@@ -68,11 +109,12 @@ pub fn bake_scene(scene: &Scene, res: usize) -> Volume {
         let y = -half_extent + (j as f64 + 0.5) * step;
         let z = -half_extent + (k as f64 + 0.5) * step;
         let mut sum = 0.0_f64;
-        for a in atoms {
+        for (a, &ze) in atoms.iter().zip(z_effs_slice.iter()) {
             let dx = x - a.position[0];
             let dy = y - a.position[1];
             let dz = z - a.position[2];
-            sum += crate::physics::psi_squared(a.orbital.n, a.orbital.l, a.orbital.m, dx, dy, dz);
+            sum +=
+                crate::physics::psi_squared(a.orbital.n, a.orbital.l, a.orbital.m, ze, dx, dy, dz);
         }
         sum
     };
@@ -117,7 +159,8 @@ mod tests {
             let x = -half_extent + (i as f64 + 0.5) * step;
             let y = -half_extent + (j as f64 + 0.5) * step;
             let z = -half_extent + (k as f64 + 0.5) * step;
-            crate::physics::psi_squared(n, l, m, x, y, z)
+            // Bare-hydrogen z_eff=1.0 — what the pre-Slater bake assumed.
+            crate::physics::psi_squared(n, l, m, 1.0, x, y, z)
         };
         let raw: Vec<f64> = (0..total).into_par_iter().map(sample).collect();
         let peak = raw.iter().copied().fold(0.0_f64, f64::max);
@@ -144,6 +187,53 @@ mod tests {
         assert!(
             (integral - 1.0).abs() < 0.10,
             "expected ~1.0, got {integral}"
+        );
+    }
+
+    #[test]
+    fn bake_scene_carbon_2p_smaller_than_hydrogen_2p() {
+        use crate::scene::{Atom, ElementId, View};
+        // The user-visible payoff: carbon's 2p has z_eff = 3.25, so its
+        // bounding box must shrink relative to hydrogen's 2p (z_eff = 1).
+        let h_scene = Scene::single_hydrogen(Orbital { n: 2, l: 1, m: 0 });
+        let c_scene = Scene {
+            atoms: vec![Atom {
+                element: ElementId(6), // Carbon
+                position: [0.0, 0.0, 0.0],
+                orbital: Orbital { n: 2, l: 1, m: 0 },
+            }],
+            view: View::default(),
+        };
+        let h = bake_scene(&h_scene, 16);
+        let c = bake_scene(&c_scene, 16);
+        assert!(
+            c.half_extent < h.half_extent,
+            "carbon box {} should be smaller than hydrogen box {}",
+            c.half_extent,
+            h.half_extent,
+        );
+    }
+
+    #[test]
+    fn bake_scene_bare_z_overrides_slater() {
+        use crate::scene::{Atom, ElementId, View};
+        // Two carbons, identical orbital — one with use_bare_z=false
+        // (Slater z_eff=3.25) and one with use_bare_z=true (bare Z=6).
+        // The bare-Z bake must produce an even tighter box.
+        let orbital = Orbital { n: 2, l: 1, m: 0 };
+        let atom = Atom { element: ElementId(6), position: [0.0, 0.0, 0.0], orbital };
+        let slater_scene = Scene { atoms: vec![atom], view: View::default() };
+        let bare_scene = Scene {
+            atoms: vec![atom],
+            view: View { use_bare_z: true, ..View::default() },
+        };
+        let slater = bake_scene(&slater_scene, 16);
+        let bare = bake_scene(&bare_scene, 16);
+        assert!(
+            bare.half_extent < slater.half_extent,
+            "bare-Z box {} should be tighter than Slater box {}",
+            bare.half_extent,
+            slater.half_extent,
         );
     }
 

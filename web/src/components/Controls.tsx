@@ -32,7 +32,17 @@ export type OrbitalParams = {
   m: number;
 };
 
+/** Symbols for the first 18 elements, indexed by `atomicNumber - 1`. */
+export const ELEMENT_SYMBOLS: readonly string[] = [
+  'H', 'He', 'Li', 'Be', 'B', 'C',
+  'N', 'O', 'F', 'Ne', 'Na', 'Mg',
+  'Al', 'Si', 'P', 'S', 'Cl', 'Ar',
+];
+
 export type ControlsProps = {
+  /** Selected element's atomic number (1..=18). */
+  elementZ: number;
+  onElementChange: (next: number) => void;
   value: OrbitalParams;
   onChange: (next: OrbitalParams) => void;
   colormap: ColormapName;
@@ -206,6 +216,7 @@ function range(lo: number, hi: number): number[] {
 // row label and learn what the quantum number means. Browser-native
 // `title` attribute — no library, no positioning logic.
 const LABEL_TOOLTIPS: Record<string, string> = {
+  element: 'Element — picking a higher-Z atom shrinks the cloud (Slater shielding)',
   n: 'Principal quantum number — energy level / size of the orbital',
   l: 'Orbital angular momentum — shape of the orbital (0=s, 1=p, 2=d, 3=f)',
   m: 'Magnetic quantum number — orientation of the orbital in space (−l ≤ m ≤ +l)',
@@ -278,6 +289,56 @@ function ChipStrip({
               title={chipTooltip?.(v)}
             >
               {v}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// Functional element picker — issue 02 spec calls for "a simple flat list
+// or basic grid of 18 element symbols; clicking selects". Issue 05 will
+// replace this with a polished periodic-table layout. The 6-column CSS
+// grid mirrors the desktop's 3-rows-of-6 chip layout.
+const elementGridStyle: CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(6, 1fr)',
+  gap: 4,
+};
+
+type ElementPickerProps = {
+  value: number;
+  onPick: (z: number) => void;
+};
+
+function ElementPicker({ value, onPick }: ElementPickerProps) {
+  const [hovered, setHovered] = useState<number | null>(null);
+  return (
+    <div style={rowStyle}>
+      <span style={labelStyle} title={LABEL_TOOLTIPS.element}>
+        element
+      </span>
+      <div style={elementGridStyle} role="radiogroup" aria-label="element">
+        {ELEMENT_SYMBOLS.map((sym, i) => {
+          const z = i + 1;
+          const isSelected = z === value;
+          const isHovered = !isSelected && hovered === z;
+          const style = isSelected ? chipSelected : isHovered ? chipHover : chipBase;
+          return (
+            <button
+              key={sym}
+              type="button"
+              role="radio"
+              aria-checked={isSelected}
+              aria-label={sym}
+              onClick={() => onPick(z)}
+              onPointerEnter={() => setHovered(z)}
+              onPointerLeave={() => setHovered((h) => (h === z ? null : h))}
+              style={style}
+              title={`Z = ${z}`}
+            >
+              {sym}
             </button>
           );
         })}
@@ -450,6 +511,8 @@ function PresetStrip({ value, onPick }: PresetStripProps) {
 }
 
 export default function Controls({
+  elementZ,
+  onElementChange,
   value,
   onChange,
   colormap,
@@ -478,6 +541,8 @@ export default function Controls({
       onPointerUp={stop}
       onWheel={(e) => e.stopPropagation()}
     >
+      <ElementPicker value={elementZ} onPick={onElementChange} />
+      <hr style={dividerStyle} />
       <ChipStrip
         label="n"
         values={nValues}

@@ -25,6 +25,7 @@ describe('parseStoredState', () => {
 
   it('round-trips a clean stored state unchanged', () => {
     const s: StoredState = {
+      elementZ: 6,
       n: 4,
       l: 2,
       m: -1,
@@ -33,6 +34,17 @@ describe('parseStoredState', () => {
       hudVisible: false,
     };
     expect(parseStoredState(serializeStoredState(s))).toEqual(s);
+  });
+
+  it('clamps elementZ to [1, 18] and falls back for missing/invalid values', () => {
+    const tooLow = parseStoredState(JSON.stringify({ ...DEFAULT_STORED_STATE, elementZ: 0 }))!;
+    expect(tooLow.elementZ).toBe(1);
+    const tooHigh = parseStoredState(JSON.stringify({ ...DEFAULT_STORED_STATE, elementZ: 99 }))!;
+    expect(tooHigh.elementZ).toBe(18);
+    const missing = parseStoredState(JSON.stringify({ n: 2, l: 1, m: 0 }))!;
+    expect(missing.elementZ).toBe(DEFAULT_STORED_STATE.elementZ);
+    const garbled = parseStoredState(JSON.stringify({ ...DEFAULT_STORED_STATE, elementZ: 'foo' }))!;
+    expect(garbled.elementZ).toBe(DEFAULT_STORED_STATE.elementZ);
   });
 
   it('clamps l down when it exceeds n - 1', () => {

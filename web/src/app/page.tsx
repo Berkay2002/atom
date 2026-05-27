@@ -21,6 +21,7 @@ const DEFAULT_PARAMS: OrbitalParams = {
   m: DEFAULT_STORED_STATE.m,
 };
 const DEFAULT_COLORMAP: ColormapName = DEFAULT_STORED_STATE.colormap;
+const DEFAULT_ELEMENT_Z = DEFAULT_STORED_STATE.elementZ;
 
 const STORAGE_DEBOUNCE_MS = 300;
 
@@ -30,6 +31,7 @@ export default function Home() {
   // localStorage inside a one-shot effect. The cost is a single frame of
   // default state on first paint — acceptable; the bake debounce hides
   // it anyway.
+  const [elementZ, setElementZ] = useState<number>(DEFAULT_ELEMENT_Z);
   const [params, setParams] = useState<OrbitalParams>(DEFAULT_PARAMS);
   const [colormap, setColormap] = useState<ColormapName>(DEFAULT_COLORMAP);
   const [autoRotate, setAutoRotate] = useState<boolean>(DEFAULT_STORED_STATE.autoRotate);
@@ -46,6 +48,7 @@ export default function Home() {
     // defaults first to match the server HTML, then catch up.
     const stored = loadStoredState();
     /* eslint-disable react-hooks/set-state-in-effect */
+    setElementZ(stored.elementZ);
     setParams({ n: stored.n, l: stored.l, m: stored.m });
     setColormap(stored.colormap);
     setAutoRotate(stored.autoRotate);
@@ -61,6 +64,7 @@ export default function Home() {
   useEffect(() => {
     if (!hydratedRef.current) return;
     const snapshot: StoredState = {
+      elementZ,
       n: params.n,
       l: params.l,
       m: params.m,
@@ -70,7 +74,7 @@ export default function Home() {
     };
     const timer = setTimeout(() => saveStoredState(snapshot), STORAGE_DEBOUNCE_MS);
     return () => clearTimeout(timer);
-  }, [params.n, params.l, params.m, colormap, autoRotate, hudVisible]);
+  }, [elementZ, params.n, params.l, params.m, colormap, autoRotate, hudVisible]);
 
   // Global `H` shortcut toggles the HUD. Uses the functional setState
   // form so the listener stays correct even though the effect runs once
@@ -94,9 +98,11 @@ export default function Home() {
 
   return (
     <>
-      <AtomCanvas params={params} colormap={colormap} autoRotate={autoRotate} />
+      <AtomCanvas elementZ={elementZ} params={params} colormap={colormap} autoRotate={autoRotate} />
       {hudVisible && (
         <Controls
+          elementZ={elementZ}
+          onElementChange={setElementZ}
           value={params}
           onChange={setParams}
           colormap={colormap}

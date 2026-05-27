@@ -25,7 +25,8 @@ fn wasm_bake_matches_native_bake_elementwise() {
 
     let scene = atom_core::scene::Scene::single_hydrogen(atom_core::scene::Orbital { n, l, m });
     let native = atom_core::volume::bake_scene(&scene, res);
-    let wasm = atom_core::wasm::bake_scene(n, l, m, res);
+    // Element Z=1 (hydrogen), use_bare_z=false → identical to single_hydrogen.
+    let wasm = atom_core::wasm::bake_scene(1, n, l, m, false, res);
 
     // Pull the Float32Array view across the JS boundary into a Rust Vec.
     let view = wasm.data();

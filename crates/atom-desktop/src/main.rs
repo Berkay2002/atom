@@ -11,7 +11,7 @@ use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::window::{Window, WindowId};
 
-use atom_core::scene::{Orbital, Scene};
+use atom_core::scene::{Atom, ElementId, Orbital, Scene, View};
 use atom_core::volume;
 use camera::Camera;
 use render::Renderer;
@@ -25,9 +25,14 @@ struct GpuState {
     window: Arc<Window>,
     renderer: Renderer,
     camera: Camera,
+    current_element_z: u32,
     current_n: u32,
     current_l: u32,
     current_m: i32,
+    /// Half-edge of the most recently baked volume. The shader needs the
+    /// exact value used by the bake — for high-Z atoms (and the future
+    /// bare-Z toggle) `volume::box_extent(n)` no longer matches.
+    current_half_extent: f32,
     current_colormap: usize,
     mouse_down: bool,
     last_mouse: Option<(f64, f64)>,
@@ -89,6 +94,7 @@ impl GpuState {
             256,
         );
         let last_peak = initial.peak;
+        let current_half_extent = initial.half_extent as f32;
         let renderer = {
             let mut r = Renderer::new(&device, &queue, config.format, &initial);
             r.replace_lut(&device, &queue, crate::colormaps::ALL[0].1);
@@ -122,6 +128,8 @@ impl GpuState {
             egui_ctx, egui_state, egui_renderer, ui,
             last_frame,
             last_peak,
+            current_element_z: 1,
+            current_half_extent,
             fps_accum: 0.0,
             fps_count: 0,
             fps_value: 0.0,
@@ -137,7 +145,7 @@ impl GpuState {
 
     fn render(&mut self) {
         if self.ui.fit_requested {
-            self.camera.fit(volume::box_extent(self.current_n) as f32);
+            self.camera.fit(self.current_half_extent);
             self.ui.fit_requested = false;
         }
 
@@ -164,7 +172,7 @@ impl GpuState {
                 &ui::HudInputs {
                     fps: self.fps_value,
                     peak_psi_sq: self.last_peak,
-                    box_half: volume::box_extent(self.current_n),
+                    box_half: self.current_half_extent as f64,
                     camera_radius: self.camera.radius,
                 },
                 &mut self.ui,
@@ -172,17 +180,29 @@ impl GpuState {
             rebake_requested = rebake_from_panel || rebake_from_hud;
         });
         if rebake_requested {
-            let scene = Scene::single_hydrogen(Orbital {
-                n: self.ui.n,
-                l: self.ui.l,
-                m: self.ui.m,
-            });
+            let scene = Scene {
+                atoms: vec![Atom {
+                    element: ElementId(self.ui.element_z),
+                    position: [0.0, 0.0, 0.0],
+                    orbital: Orbital {
+                        n: self.ui.n,
+                        l: self.ui.l,
+                        m: self.ui.m,
+                    },
+                }],
+                view: View::default(),
+            };
             let v = volume::bake_scene(&scene, self.ui.resolution);
             self.last_peak = v.peak;
+            self.current_half_extent = v.half_extent as f32;
             self.renderer.replace_volume(&self.device, &self.queue, &v);
+            self.current_element_z = self.ui.element_z;
             self.current_n = self.ui.n;
             self.current_l = self.ui.l;
             self.current_m = self.ui.m;
+            // Refit the camera so high-Z atoms (tighter boxes) don't
+            // shrink to a dot in the viewport. Mirrors the manual `F` key.
+            self.camera.fit(self.current_half_extent);
         }
         if self.ui.colormap_index != self.current_colormap {
             let stops = crate::colormaps::ALL[self.ui.colormap_index].1;
@@ -206,7 +226,7 @@ impl GpuState {
         };
         let view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-        let half = volume::box_extent(self.current_n) as f32;
+        let half = self.current_half_extent;
         let view_proj = self.camera.view_proj();
         let cam_pos = self.camera.position();
         self.renderer.update_uniforms(
@@ -418,7 +438,7 @@ impl ApplicationHandler for App {
                         // additions (e.g. search input).
                         let text_focus = gpu.egui_ctx.egui_wants_keyboard_input();
                         if !text_focus && code == winit::keyboard::KeyCode::KeyF {
-                            gpu.camera.fit(volume::box_extent(gpu.current_n) as f32);
+                            gpu.camera.fit(gpu.current_half_extent);
                         }
                         if !text_focus && code == winit::keyboard::KeyCode::KeyS {
                             gpu.ui.screenshot_requested = true;

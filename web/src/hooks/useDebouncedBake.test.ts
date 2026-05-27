@@ -63,9 +63,9 @@ describe('useDebouncedBake', () => {
   it('fires exactly one bake 150ms after a single param change', async () => {
     const client = new MockBakeClient();
     const { rerender } = renderHook(
-      ({ p }: { p: { n: number; l: number; m: number; res: number } }) =>
+      ({ p }: { p: { elementZ: number; n: number; l: number; m: number; useBareZ: boolean; res: number } }) =>
         useDebouncedBake(p, client),
-      { initialProps: { p: { n: 3, l: 2, m: 1, res: 96 } } },
+      { initialProps: { p: { elementZ: 1, n: 3, l: 2, m: 1, useBareZ: false, res: 96 } } },
     );
 
     // Initial mount also schedules a bake — wait it out for clarity.
@@ -74,7 +74,7 @@ describe('useDebouncedBake', () => {
     });
     expect(client.requestBake).toHaveBeenCalledTimes(1);
 
-    rerender({ p: { n: 4, l: 2, m: 1, res: 96 } });
+    rerender({ p: { elementZ: 1, n: 4, l: 2, m: 1, useBareZ: false, res: 96 } });
     expect(client.requestBake).toHaveBeenCalledTimes(1);
 
     await act(async () => {
@@ -86,15 +86,15 @@ describe('useDebouncedBake', () => {
       await vi.advanceTimersByTimeAsync(1);
     });
     expect(client.requestBake).toHaveBeenCalledTimes(2);
-    expect(client.requestBake).toHaveBeenLastCalledWith({ n: 4, l: 2, m: 1, res: 96 });
+    expect(client.requestBake).toHaveBeenLastCalledWith({ elementZ: 1, n: 4, l: 2, m: 1, useBareZ: false, res: 96 });
   });
 
   it('coalesces two rapid changes into a single bake with the latest params', async () => {
     const client = new MockBakeClient();
     const { rerender } = renderHook(
-      ({ p }: { p: { n: number; l: number; m: number; res: number } }) =>
+      ({ p }: { p: { elementZ: number; n: number; l: number; m: number; useBareZ: boolean; res: number } }) =>
         useDebouncedBake(p, client),
-      { initialProps: { p: { n: 3, l: 2, m: 1, res: 96 } } },
+      { initialProps: { p: { elementZ: 1, n: 3, l: 2, m: 1, useBareZ: false, res: 96 } } },
     );
 
     // Drain the initial mount bake.
@@ -103,13 +103,13 @@ describe('useDebouncedBake', () => {
     });
     client.requestBake.mockClear();
 
-    rerender({ p: { n: 4, l: 2, m: 1, res: 96 } });
+    rerender({ p: { elementZ: 1, n: 4, l: 2, m: 1, useBareZ: false, res: 96 } });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(50);
     });
     expect(client.requestBake).not.toHaveBeenCalled();
 
-    rerender({ p: { n: 5, l: 2, m: 1, res: 96 } });
+    rerender({ p: { elementZ: 1, n: 5, l: 2, m: 1, useBareZ: false, res: 96 } });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(149);
     });
@@ -119,15 +119,15 @@ describe('useDebouncedBake', () => {
       await vi.advanceTimersByTimeAsync(1);
     });
     expect(client.requestBake).toHaveBeenCalledTimes(1);
-    expect(client.requestBake).toHaveBeenLastCalledWith({ n: 5, l: 2, m: 1, res: 96 });
+    expect(client.requestBake).toHaveBeenLastCalledWith({ elementZ: 1, n: 5, l: 2, m: 1, useBareZ: false, res: 96 });
   });
 
   it('supersedes an in-flight bake when params change again', async () => {
     const client = new MockBakeClient();
     const { result, rerender } = renderHook(
-      ({ p }: { p: { n: number; l: number; m: number; res: number } }) =>
+      ({ p }: { p: { elementZ: number; n: number; l: number; m: number; useBareZ: boolean; res: number } }) =>
         useDebouncedBake(p, client),
-      { initialProps: { p: { n: 3, l: 2, m: 1, res: 96 } } },
+      { initialProps: { p: { elementZ: 1, n: 3, l: 2, m: 1, useBareZ: false, res: 96 } } },
     );
 
     // First bake is dispatched but never resolved.
@@ -138,12 +138,12 @@ describe('useDebouncedBake', () => {
     expect(result.current.baking).toBe(true);
 
     // Change params while the first bake is still pending.
-    rerender({ p: { n: 4, l: 2, m: 1, res: 96 } });
+    rerender({ p: { elementZ: 1, n: 4, l: 2, m: 1, useBareZ: false, res: 96 } });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(150);
     });
     expect(client.requestBake).toHaveBeenCalledTimes(2);
-    expect(client.requestBake).toHaveBeenLastCalledWith({ n: 4, l: 2, m: 1, res: 96 });
+    expect(client.requestBake).toHaveBeenLastCalledWith({ elementZ: 1, n: 4, l: 2, m: 1, useBareZ: false, res: 96 });
 
     // Resolving the second bake should land in state; the first never does.
     const secondVolume = makeVolume(2);
@@ -167,7 +167,7 @@ describe('useDebouncedBake', () => {
   it('toggles baking=true at request start and false at result delivery', async () => {
     const client = new MockBakeClient();
     const { result } = renderHook(() =>
-      useDebouncedBake({ n: 3, l: 2, m: 1, res: 96 }, client),
+      useDebouncedBake({ elementZ: 1, n: 3, l: 2, m: 1, useBareZ: false, res: 96 }, client),
     );
 
     expect(result.current.baking).toBe(false);

@@ -19,9 +19,11 @@ import { BakeCancelledError, type IBakeClient, type Volume } from '@/lib/bake/cl
 const DEBOUNCE_MS = 150;
 
 export type BakeInputs = {
+  elementZ: number;
   n: number;
   l: number;
   m: number;
+  useBareZ: boolean;
   res: number;
 };
 
@@ -66,7 +68,7 @@ export function useDebouncedBake(
       clearTimeout(timer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [params.n, params.l, params.m, params.res, client]);
+  }, [params.elementZ, params.n, params.l, params.m, params.useBareZ, params.res, client]);
 
   return { volume, baking };
 }
