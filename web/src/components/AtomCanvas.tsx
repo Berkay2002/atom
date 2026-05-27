@@ -15,6 +15,7 @@ import { OrbitCamera } from '@/lib/camera/orbit-camera';
 import { attachPointerInput } from '@/lib/camera/pointer-input';
 import { Raymarcher } from '@/lib/renderer/raymarch';
 import { BakeClient } from '@/lib/bake/client';
+import { COLORMAPS, type ColormapName } from '@/lib/colormaps';
 import { useDebouncedBake } from '@/hooks/useDebouncedBake';
 import type { OrbitalParams } from './Controls';
 
@@ -25,9 +26,10 @@ const RAYMARCH_PARAMS = { k: 5, exposure: 1, steps: 256 };
 
 export type AtomCanvasProps = {
   params: OrbitalParams;
+  colormap: ColormapName;
 };
 
-export default function AtomCanvas({ params }: AtomCanvasProps) {
+export default function AtomCanvas({ params, colormap }: AtomCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const rendererRef = useRef<Raymarcher | null>(null);
   const cameraRef = useRef<OrbitCamera | null>(null);
@@ -64,6 +66,11 @@ export default function AtomCanvas({ params }: AtomCanvasProps) {
 
     const renderer = new Raymarcher(canvas);
     renderer.setParams(RAYMARCH_PARAMS);
+    // Upload the initial LUT before the first frame so we never flash
+    // grayscale / uninitialized colour. The colormap effect below also
+    // syncs on prop change, but seeding here avoids a 1-frame gap when
+    // the initial value happens to be the React default.
+    renderer.setColormap(COLORMAPS[colormap]);
     rendererRef.current = renderer;
 
     // Aspect is updated on the first sizeToWindow call below, so the
@@ -129,6 +136,17 @@ export default function AtomCanvas({ params }: AtomCanvasProps) {
     });
     camera.fit(volume.halfExtent);
   }, [volume]);
+
+  // Swap the LUT in place when the picker selection changes. No bake
+  // request — the volume hasn't moved; the rAF loop just picks up the
+  // new palette on the next draw. Skipped on first mount when the
+  // renderer ref isn't populated yet (the initial seed happens inside
+  // the mount effect above).
+  useEffect(() => {
+    const renderer = rendererRef.current;
+    if (!renderer) return;
+    renderer.setColormap(COLORMAPS[colormap]);
+  }, [colormap]);
 
   return (
     <canvas

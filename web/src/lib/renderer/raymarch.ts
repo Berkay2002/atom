@@ -8,6 +8,7 @@
 // `setParams`, `resize`, `draw`. No React imports, no DOM globals beyond
 // the canvas passed in.
 
+import type { ColormapStops } from '../colormaps';
 import { FRAG_SRC, VERT_SRC } from './shaders';
 
 export type RaymarchParams = {
@@ -72,10 +73,17 @@ export class Raymarcher {
     boxHalf: WebGLUniformLocation;
     params: WebGLUniformLocation;
     volume: WebGLUniformLocation;
+    lut: WebGLUniformLocation;
   };
   private readonly linearFilteringSupported: boolean;
+  // SRGB8_ALPHA8 is core in WebGL2; the legacy EXT_sRGB extension only
+  // applies to WebGL1. If a future browser somehow drops the core format
+  // we fall back to plain RGBA8 (linear), accepting slightly washed-out
+  // colors vs the desktop's `Rgba8UnormSrgb` upload.
+  private readonly srgbLutSupported = true;
 
   private texture: WebGLTexture | null = null;
+  private lutTexture: WebGLTexture | null = null;
   private res = 0;
   private boxHalf = 1;
   private camPos: [number, number, number] = [0, 0, 5];
@@ -120,9 +128,75 @@ export class Raymarcher {
       boxHalf: must('u_box_half'),
       params: must('u_params'),
       volume: must('u_volume'),
+      lut: must('u_lut'),
     };
 
     gl.clearColor(0, 0, 0, 1);
+  }
+
+  /**
+   * Upload a 256-entry RGBA8 1D look-up texture interpolated from the
+   * caller's stop array. Mirrors `upload_lut_texture` in
+   * `crates/atom-desktop/src/render.rs` — the interpolation math is byte-
+   * identical so the web and desktop palettes match.
+   *
+   * WebGL2 has no 1D texture target, so the LUT lives in a 256×1 2D
+   * texture. The fragment shader samples it at `(intensity, 0.5)`.
+   *
+   * Cheap enough that re-creating the storage on every call is fine —
+   * 1 KiB upload + no pipeline rebuild keeps the swap snappy.
+   */
+  setColormap(stops: ColormapStops): void {
+    const { gl } = this;
+    const n = stops.length;
+    if (n < 2) throw new Error(`colormap needs at least 2 stops, got ${n}`);
+
+    const data = new Uint8Array(256 * 4);
+    for (let i = 0; i < 256; i += 1) {
+      const t = i / 255;
+      const f = t * (n - 1);
+      const lo = Math.floor(f);
+      const hi = Math.min(lo + 1, n - 1);
+      const a = f - lo;
+      const inv = 1 - a;
+      const c0 = stops[lo];
+      const c1 = stops[hi];
+      const r = Math.round(c0[0] * inv + c1[0] * a);
+      const gch = Math.round(c0[1] * inv + c1[1] * a);
+      const b = Math.round(c0[2] * inv + c1[2] * a);
+      const off = i * 4;
+      data[off] = r;
+      data[off + 1] = gch;
+      data[off + 2] = b;
+      data[off + 3] = 255;
+    }
+
+    if (!this.lutTexture) {
+      const tex = gl.createTexture();
+      if (!tex) throw new Error('createTexture returned null for LUT');
+      this.lutTexture = tex;
+      gl.bindTexture(gl.TEXTURE_2D, tex);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    } else {
+      gl.bindTexture(gl.TEXTURE_2D, this.lutTexture);
+    }
+
+    const internalFormat = this.srgbLutSupported ? gl.SRGB8_ALPHA8 : gl.RGBA8;
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
+    gl.texImage2D(
+      gl.TEXTURE_2D,
+      0,
+      internalFormat,
+      256,
+      1,
+      0,
+      gl.RGBA,
+      gl.UNSIGNED_BYTE,
+      data,
+    );
   }
 
   setVolume(vol: VolumeData): void {
@@ -198,6 +272,12 @@ export class Raymarcher {
     gl.bindTexture(gl.TEXTURE_3D, this.texture);
     gl.uniform1i(this.uniforms.volume, 0);
 
+    if (this.lutTexture) {
+      gl.activeTexture(gl.TEXTURE1);
+      gl.bindTexture(gl.TEXTURE_2D, this.lutTexture);
+      gl.uniform1i(this.uniforms.lut, 1);
+    }
+
     gl.uniformMatrix4fv(this.uniforms.invViewProj, false, this.invViewProj);
     gl.uniform3f(this.uniforms.camPos, this.camPos[0], this.camPos[1], this.camPos[2]);
     gl.uniform1f(this.uniforms.boxHalf, this.boxHalf);
@@ -216,6 +296,7 @@ export class Raymarcher {
   dispose(): void {
     const { gl } = this;
     if (this.texture) gl.deleteTexture(this.texture);
+    if (this.lutTexture) gl.deleteTexture(this.lutTexture);
     gl.deleteProgram(this.program);
     gl.deleteVertexArray(this.vao);
   }

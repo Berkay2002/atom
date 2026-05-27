@@ -17,6 +17,15 @@
 
 import { useState, type CSSProperties, type PointerEvent } from 'react';
 
+import {
+  COLORMAP_LABELS,
+  COLORMAP_ORDER,
+  COLORMAPS,
+  type ColormapName,
+  type ColormapStops,
+} from '@/lib/colormaps';
+import { PRESETS, type Preset } from '@/lib/presets';
+
 export type OrbitalParams = {
   n: number;
   l: number;
@@ -26,6 +35,8 @@ export type OrbitalParams = {
 export type ControlsProps = {
   value: OrbitalParams;
   onChange: (next: OrbitalParams) => void;
+  colormap: ColormapName;
+  onColormapChange: (next: ColormapName) => void;
 };
 
 const N_MIN = 1;
@@ -50,6 +61,7 @@ const TOKEN = {
   surfaceMute: 'rgba(255, 255, 255, 0.05)',
   surfaceMuteHover: 'rgba(255, 255, 255, 0.09)',
   border: 'rgba(255, 255, 255, 0.06)',
+  divider: 'rgba(255, 255, 255, 0.08)',
   radiusCard: 10,
   radiusChip: 999, // pill chips for the web restyle (desktop uses 4px on bool chips)
   bodySize: 12,
@@ -65,6 +77,12 @@ const panelStyle: CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
   gap: 10,
+  // Cap card width so the preset chip strip (`flexWrap: 'wrap'` in
+  // `stripStyle`) actually wraps to multiple rows instead of stretching
+  // the card to fit all 11 presets in one line. 280px comfortably fits
+  // the first row of short presets (1s, 2s, 2p_x, 2p_y, 2p_z) and lets
+  // the wider 3d_* / 4f_* chips flow onto subsequent rows.
+  maxWidth: 280,
   // 12px horizontal / 14px vertical matches card_frame's symmetric(12, 14)
   // inner margin in ui_widgets.rs.
   padding: '14px 12px',
@@ -143,6 +161,39 @@ const chipSelected: CSSProperties = {
   color: TOKEN.textPrimary,
 };
 
+const dividerStyle: CSSProperties = {
+  border: 'none',
+  borderTop: `1px solid ${TOKEN.divider}`,
+  margin: '2px 0',
+};
+
+// Compact swatch — height kept short so the 2×3 grid stays vertically
+// dense; width is driven by the grid cell (`width: '100%'`).
+const SWATCH_H = 16;
+
+const swatchRowStyle: CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(3, 1fr)',
+  gap: 4,
+};
+
+const swatchBase: CSSProperties = {
+  width: '100%',
+  height: SWATCH_H,
+  borderRadius: 4,
+  cursor: 'pointer',
+  padding: 0,
+  borderStyle: 'solid',
+  borderWidth: 1,
+  borderColor: 'transparent',
+  transition: 'border-color 120ms ease, transform 120ms ease',
+};
+
+const swatchSelected: CSSProperties = {
+  ...swatchBase,
+  borderColor: TOKEN.accent,
+};
+
 function range(lo: number, hi: number): number[] {
   const out: number[] = [];
   for (let i = lo; i <= hi; i += 1) out.push(i);
@@ -156,6 +207,8 @@ const LABEL_TOOLTIPS: Record<string, string> = {
   n: 'Principal quantum number — energy level / size of the orbital',
   l: 'Orbital angular momentum — shape of the orbital (0=s, 1=p, 2=d, 3=f)',
   m: 'Magnetic quantum number — orientation of the orbital in space (−l ≤ m ≤ +l)',
+  colormap: 'Color palette applied to the density',
+  presets: 'Common named orbitals',
 };
 
 const N_TOOLTIPS: Record<number, string> = {
@@ -230,7 +283,101 @@ function ChipStrip({
   );
 }
 
-export default function Controls({ value, onChange }: ControlsProps) {
+// Build a CSS linear-gradient string from the 8 colormap stops. CSS
+// interpolates the gradient itself between adjacent color-stops the same
+// way the renderer's LUT does — perceptually identical at this size.
+function gradientCss(stops: ColormapStops): string {
+  const parts = stops.map((c, i) => {
+    const pct = (i / (stops.length - 1)) * 100;
+    return `rgb(${c[0]}, ${c[1]}, ${c[2]}) ${pct.toFixed(2)}%`;
+  });
+  return `linear-gradient(to right, ${parts.join(', ')})`;
+}
+
+type ColormapPickerProps = {
+  value: ColormapName;
+  onPick: (next: ColormapName) => void;
+};
+
+function ColormapPicker({ value, onPick }: ColormapPickerProps) {
+  return (
+    <div style={rowStyle}>
+      <span style={labelStyle} title={LABEL_TOOLTIPS.colormap}>
+        colormap
+      </span>
+      <div style={swatchRowStyle} role="radiogroup" aria-label="colormap">
+        {COLORMAP_ORDER.map((name) => {
+          const isSelected = name === value;
+          const style: CSSProperties = {
+            ...(isSelected ? swatchSelected : swatchBase),
+            background: gradientCss(COLORMAPS[name]),
+          };
+          return (
+            <button
+              key={name}
+              type="button"
+              role="radio"
+              aria-checked={isSelected}
+              aria-label={COLORMAP_LABELS[name]}
+              title={COLORMAP_LABELS[name]}
+              onClick={() => onPick(name)}
+              style={style}
+            />
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+type PresetStripProps = {
+  value: OrbitalParams;
+  onPick: (p: Preset) => void;
+};
+
+function matchesPreset(p: Preset, v: OrbitalParams): boolean {
+  return p.n === v.n && p.l === v.l && p.m === v.m;
+}
+
+function PresetStrip({ value, onPick }: PresetStripProps) {
+  const [hovered, setHovered] = useState<number | null>(null);
+  return (
+    <div style={rowStyle}>
+      <span style={labelStyle} title={LABEL_TOOLTIPS.presets}>
+        presets
+      </span>
+      <div style={stripStyle} role="radiogroup" aria-label="presets">
+        {PRESETS.map((p, i) => {
+          const isSelected = matchesPreset(p, value);
+          const isHovered = !isSelected && hovered === i;
+          const style = isSelected ? chipSelected : isHovered ? chipHover : chipBase;
+          return (
+            <button
+              key={p.label}
+              type="button"
+              role="radio"
+              aria-checked={isSelected}
+              onClick={() => onPick(p)}
+              onPointerEnter={() => setHovered(i)}
+              onPointerLeave={() => setHovered((h) => (h === i ? null : h))}
+              style={style}
+              title={`n=${p.n}, l=${p.l}, m=${p.m}`}
+            >
+              {p.label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+export default function Controls({
+  value,
+  onChange,
+  colormap,
+  onColormapChange,
+}: ControlsProps) {
   // Keep pointer events from bubbling into the canvas drag/zoom handlers.
   const stop = (e: PointerEvent<HTMLDivElement>) => {
     e.stopPropagation();
@@ -278,6 +425,13 @@ export default function Controls({ value, onChange }: ControlsProps) {
         idPrefix="ctrl-m"
         labelTooltip={LABEL_TOOLTIPS.m}
         chipTooltip={mTooltip}
+      />
+      <hr style={dividerStyle} />
+      <ColormapPicker value={colormap} onPick={onColormapChange} />
+      <hr style={dividerStyle} />
+      <PresetStrip
+        value={value}
+        onPick={(p) => emit(p.n, p.l, p.m)}
       />
     </div>
   );

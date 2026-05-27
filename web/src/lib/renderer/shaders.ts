@@ -3,8 +3,9 @@
 //
 // Differences from the desktop WGSL source:
 //   * `@vertex` / `@fragment` become GLSL `in`/`out` declarations.
-//   * The 1D colormap LUT is replaced with an inline grayscale gradient
-//     (slice 03 has no colormap UI; LUT lands in slice 06).
+//   * The 1D colormap LUT is a 2D texture with height=1 — WebGL2 has no
+//     1D texture target. Sampled at v=0.5 to land in the centre of the
+//     single row. Linear filter on `u` matches the desktop's wgpu sampler.
 //   * UV convention: GLSL samples `texture(volume, uvw)`; we still map
 //     world-space `(p + half) / (2*half)` into [0,1]^3, identical to WGSL.
 
@@ -38,6 +39,7 @@ uniform float u_box_half;
 // (k, exposure, steps, _)
 uniform vec4 u_params;
 uniform sampler3D u_volume;
+uniform sampler2D u_lut;
 
 vec2 slab_intersect(vec3 ro, vec3 rd, vec3 bmin, vec3 bmax) {
     vec3 inv = 1.0 / rd;
@@ -86,8 +88,9 @@ void main() {
     float exposure = u_params.y;
     float intensity = clamp(exposure * (1.0 - exp(-k * sum)), 0.0, 1.0);
 
-    // Inline grayscale colormap (slice 03 placeholder for the 1D LUT).
-    vec3 rgb = vec3(intensity);
+    // Sample the 256x1 LUT at (intensity, 0.5). v=0.5 lands in the centre
+    // of the only row; CLAMP_TO_EDGE on u handles the inclusive [0,1] range.
+    vec3 rgb = texture(u_lut, vec2(intensity, 0.5)).rgb;
     frag_color = vec4(rgb, 1.0);
 }
 `;
