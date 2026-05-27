@@ -7,6 +7,7 @@ import AtomCanvas from '@/components/AtomCanvas';
 import Controls, { type OrbitalParams } from '@/components/Controls';
 import TourBar from '@/components/TourBar';
 import type { ColormapName } from '@/lib/colormaps';
+import { homoFor } from '@/lib/element-homo';
 import {
   decodeScene,
   encodeScene,
@@ -284,6 +285,19 @@ function HomeContent() {
   const toggleHud = useCallback(() => setHudVisible((v) => !v), []);
   const dismissDecodeError = useCallback(() => setDecodeError(null), []);
 
+  // Element-picker handler: snap (n, l, m) to the picked element's HOMO
+  // so the canvas always lands on that element's iconic orbital. Without
+  // the snap, leaving e.g. a 3d_xz preset selected and switching to
+  // Carbon would silently clamp z_eff to 0 (Slater shielding for an
+  // unoccupied d-orbital with too many same-shell screeners) and the
+  // cloud would disappear. The user can still navigate to any (n, l, m)
+  // afterwards via the chip strips or preset chips.
+  const handleElementChange = useCallback((nextZ: number) => {
+    setElementZ(nextZ);
+    const homo = homoFor(nextZ);
+    setParams({ n: homo.n, l: homo.l, m: homo.m });
+  }, []);
+
   // --- Tour mode handlers ---------------------------------------------------
 
   const handlePickTour = useCallback(
@@ -356,7 +370,7 @@ function HomeContent() {
       {hudVisible && !tourMode && (
         <Controls
           elementZ={elementZ}
-          onElementChange={setElementZ}
+          onElementChange={handleElementChange}
           value={params}
           onChange={setParams}
           colormap={colormap}

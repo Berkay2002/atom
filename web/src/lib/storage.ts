@@ -34,9 +34,15 @@ export type StoredState = {
 // return these when no valid stored blob is found.
 export const DEFAULT_STORED_STATE: StoredState = {
   elementZ: 1, // Hydrogen — the bare-Z baseline everyone has seen before.
-  n: 3,
-  l: 2,
-  m: 1,
+  // Hydrogen 1s — the canonical "what is an orbital" shot. The previous
+  // default (3, 2, 1) was a 3d_xz, which is unoccupied in every H–Ar
+  // element and renders to a blank canvas for B–Ne under Slater
+  // shielding (z_eff clamps to 0). 1s is occupied everywhere and never
+  // empty. Element-change snap in `page.tsx` updates these to the
+  // element's HOMO when the user picks a different atom.
+  n: 1,
+  l: 0,
+  m: 0,
   colormap: 'INFERNO',
   autoRotate: false,
   hudVisible: true,

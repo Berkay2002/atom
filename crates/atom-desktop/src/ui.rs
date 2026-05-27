@@ -51,10 +51,15 @@ pub struct UiState {
 impl Default for UiState {
     fn default() -> Self {
         Self {
+            // Defaults to Hydrogen 1s — the canonical "what is an orbital"
+            // shot. The previous default (3, 2, 1) was a 3d_xz, which is
+            // unoccupied in every H–Ar element and renders to a blank
+            // canvas for elements B–Ne under Slater shielding (z_eff
+            // clamps to 0). 1s is occupied everywhere and never empty.
             element_z: 1,
-            n: 3,
-            l: 2,
-            m: 1,
+            n: 1,
+            l: 0,
+            m: 0,
             use_bare_z: false,
             resolution: 256,
             k: 5.0,
@@ -91,7 +96,7 @@ pub fn panel(ctx: &egui::Context, s: &mut UiState) -> bool {
         return false;
     }
     let mut needs_rebake = false;
-    let viewport_w = ctx.screen_rect().width();
+    let viewport_w = ctx.content_rect().width();
     let narrow = viewport_w < 600.0;
     // Track breakpoint crossings on the edge only. On wide→narrow we auto-
     // collapse if the user had the card expanded. On narrow→wide we release
@@ -185,11 +190,23 @@ pub fn panel(ctx: &egui::Context, s: &mut UiState) -> bool {
                     };
                     let salt = format!("element-row-{row}");
                     if let Some(idx) = chip_strip(ui, labels, sel_in_row, &enabled, &salt) {
-                        s.element_z = (lo + idx) as u32 + 1;
-                        // (n, l, m) constraints are hydrogen-like and
-                        // universal across elements (l < n, |m| <= l), so
-                        // no element-driven re-clamp is needed here. The
-                        // re-bake fires below via the `old` comparison.
+                        let new_z = (lo + idx) as u32 + 1;
+                        s.element_z = new_z;
+                        // Snap (n, l, m) to the element's HOMO so the
+                        // canvas always shows that element's iconic
+                        // orbital instead of whatever happened to be
+                        // selected before. The old behaviour kept the
+                        // previous orbital across element changes, which
+                        // produced empty renders whenever the orbital
+                        // was unoccupied at the new Z under Slater
+                        // shielding (e.g. 3d on Carbon → z_eff = 0).
+                        // The user can still navigate to any (n, l, m)
+                        // with the chip strips or presets afterwards.
+                        if let Some(o) = atom_core::homo(ElementId(new_z)) {
+                            s.n = o.n;
+                            s.l = o.l;
+                            s.m = o.m;
+                        }
                     }
                 }
 

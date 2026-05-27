@@ -8,7 +8,7 @@
 //! triples — `slater.rs` consumes this directly when resolving the
 //! per-orbital screening sum.
 
-use crate::scene::{ElementId, Scene};
+use crate::scene::{ElementId, Orbital, Scene};
 
 /// A single `(n, l, count)` entry in an electron configuration.
 ///
@@ -87,6 +87,27 @@ pub fn element_data(id: ElementId) -> Option<&'static ElementData> {
         return None;
     }
     Some(&ELEMENTS[(z - 1) as usize])
+}
+
+/// Highest occupied orbital for an element, picked as `(n, l, m = 0)`.
+///
+/// The `(n, l)` pair is the last entry of `electron_config`. For H–Ar
+/// the build-up order is Madelung-correct with no 4s/3d crossover, so
+/// "last entry" coincides with the highest-energy occupied subshell.
+///
+/// `m = 0` is the textbook "vertical" choice — `s` for `l=0`, `p_z` for
+/// `l=1`, `d_z²` for `l=2` — always within `|m| ≤ l` and the most
+/// pedagogically iconic orientation when ray-marched.
+///
+/// Returns `None` for unknown elements (Z outside 1..=18).
+pub fn homo(element: ElementId) -> Option<Orbital> {
+    let data = element_data(element)?;
+    // Every entry in `ELEMENTS` has a non-empty config (asserted by the
+    // `electron_counts_sum_to_atomic_number` test), so `.last()` is
+    // infallible in practice — but expressing it as `?` keeps the helper
+    // total for any future ElementData with an empty config.
+    let &(n, l, _) = data.electron_config.last()?;
+    Some(Orbital { n, l, m: 0 })
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -258,6 +279,45 @@ mod tests {
             let total: u32 = e.electron_config.iter().map(|(_, _, c)| c).sum();
             assert_eq!(total, e.atomic_number, "{} electron count mismatch", e.symbol);
         }
+    }
+
+    #[test]
+    fn homo_matches_textbook_homo_for_h_through_ar() {
+        // Iconic-orbital snap for the periodic-table picker: when the
+        // user clicks an element, the UI jumps to its HOMO so the cloud
+        // is never empty. Locking the expected table here so any future
+        // edit to ELEMENTS that shifts the build-up order fails loudly.
+        let cases: &[(u32, u32, u32)] = &[
+            (1, 1, 0),  // H  → 1s
+            (2, 1, 0),  // He → 1s
+            (3, 2, 0),  // Li → 2s
+            (4, 2, 0),  // Be → 2s
+            (5, 2, 1),  // B  → 2p
+            (6, 2, 1),  // C  → 2p
+            (7, 2, 1),  // N  → 2p
+            (8, 2, 1),  // O  → 2p
+            (9, 2, 1),  // F  → 2p
+            (10, 2, 1), // Ne → 2p
+            (11, 3, 0), // Na → 3s
+            (12, 3, 0), // Mg → 3s
+            (13, 3, 1), // Al → 3p
+            (14, 3, 1), // Si → 3p
+            (15, 3, 1), // P  → 3p
+            (16, 3, 1), // S  → 3p
+            (17, 3, 1), // Cl → 3p
+            (18, 3, 1), // Ar → 3p
+        ];
+        for &(z, n, l) in cases {
+            let o = homo(ElementId(z)).expect("z in 1..=18");
+            assert_eq!((o.n, o.l, o.m), (n, l, 0), "Z={z} HOMO mismatch");
+        }
+    }
+
+    #[test]
+    fn homo_returns_none_for_unknown_z() {
+        assert!(homo(ElementId(0)).is_none());
+        assert!(homo(ElementId(19)).is_none());
+        assert!(homo(ElementId(99)).is_none());
     }
 
     #[test]

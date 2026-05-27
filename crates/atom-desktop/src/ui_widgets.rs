@@ -930,7 +930,7 @@ pub fn preset_strip(
     let more_w =
         measure_orbital(ctx, "More\u{2026}", BODY_SIZE) + 2.0 * PRESET_CHIP_PAD_X;
 
-    let screen_w = ctx.screen_rect().width();
+    let screen_w = ctx.content_rect().width();
     let natural_w = estimate_preset_strip_width(ctx, presets);
     let available_w = (screen_w - 2.0 * EDGE_INSET - SCALE_READOUT_RESERVE).max(0.0);
 
@@ -1039,7 +1039,7 @@ pub fn preset_strip(
 /// verbatim in the BOX label.
 pub fn scale_readout(ctx: &egui::Context, camera_radius: f32, box_half: f64) {
     let bar_px = 120.0_f32;
-    let viewport_h = ctx.screen_rect().height();
+    let viewport_h = ctx.content_rect().height();
     let visible_world_h = 2.0 * camera_radius * (60.0_f32.to_radians() * 0.5).tan();
     let a0_per_px = visible_world_h / viewport_h;
     let bar_a0 = (bar_px * a0_per_px) as f64;

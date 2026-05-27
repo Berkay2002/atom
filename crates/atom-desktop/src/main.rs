@@ -165,7 +165,7 @@ impl GpuState {
 
         let raw_input = self.egui_state.take_egui_input(&self.window);
         let mut rebake_requested = false;
-        let full_output = self.egui_ctx.run(raw_input, |ctx| {
+        let full_output = self.egui_ctx.run_ui(raw_input, |ctx| {
             let rebake_from_panel = ui::panel(ctx, &mut self.ui);
             let rebake_from_hud = ui::hud(
                 ctx,

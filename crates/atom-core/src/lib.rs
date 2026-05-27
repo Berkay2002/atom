@@ -11,7 +11,9 @@ pub mod scene;
 pub mod slater;
 pub mod volume;
 
-pub use element::{caption, element_data, orbital_description, orbital_label, ElementData, ELEMENTS};
+pub use element::{
+    caption, element_data, homo, orbital_description, orbital_label, ElementData, ELEMENTS,
+};
 pub use scene::{
     decode as scene_decode, encode as scene_encode, Atom, CameraState, ColormapId, DecodeError,
     ElementId, EncodeError, Orbital, Scene, View,

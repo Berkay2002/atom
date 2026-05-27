@@ -122,7 +122,6 @@ describe('parseStoredState', () => {
       m: false,
     });
     const parsed = parseStoredState(raw)!;
-    // Defaults are (3, 2, 1) which are internally valid.
     expect(parsed.n).toBe(DEFAULT_STORED_STATE.n);
     expect(parsed.l).toBe(DEFAULT_STORED_STATE.l);
   });
